@@ -1,1 +1,0 @@
-"""KindleVault — paquete principal."""

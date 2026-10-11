@@ -1,135 +1,61 @@
 # KindleVault
 
-Aplicación de escritorio para extraer, organizar y exportar los subrayados, notas y vocabulario buscado en tu Kindle, con control total sobre qué metadatos se incluyen al exportar.
+Subrayados, notas, marcadores y vocabulario de tu Kindle, en una web que se usa desde el navegador. No hay que instalar nada.
 
----
+**Abrir la app:** https://merinoantonioonu-source.github.io/KindleVault/
 
-## Cómo arrancar la app (paso a paso)
+Funciona mejor en **Chrome o Edge de escritorio**, que permiten leer el Kindle directamente y sincronizar con un archivo. En otros navegadores (Firefox, Safari, móvil) se pueden importar los archivos a mano y consultar los datos, pero no hay sincronización automática.
 
-### En Windows
+## Cómo se usa
 
-1. Asegúrate de tener Python 3 instalado:
-   - Si no lo tienes, descárgalo desde https://www.python.org/downloads/
-   - Durante la instalación, **marca la casilla "Add Python to PATH"**. Es importante.
-2. Descomprime este zip en cualquier carpeta (por ejemplo, en el Escritorio).
-3. Haz **doble clic en `KindleVault.bat`**.
-4. Se abrirá una ventana negra con el logo y, en 1-2 segundos, tu navegador con la app.
-5. **No cierres la ventana negra mientras uses la app.** Para cerrar, pulsa Ctrl+C en esa ventana o ciérrala.
+1. Conecta el Kindle por USB.
+2. Pulsa **Importar del Kindle → Elegir el Kindle** y selecciona la unidad del Kindle (por ejemplo `D:`).
+3. La app lee `documents/My Clippings.txt` y `system/vocabulary/vocab.db`. Solo lee: nunca escribe en el Kindle.
 
-### En macOS
+Puedes repetir la importación cuando quieras; lo que ya estaba no se duplica.
 
-1. Si no tienes Python 3, instálalo desde https://www.python.org/downloads/
-2. Descomprime este zip donde prefieras.
-3. La primera vez, abre el Terminal, arrastra el archivo `KindleVault.command` a la ventana del Terminal y pulsa Enter. (Esto solo es necesario una vez para autorizarlo.)
-4. A partir de ahí, **doble clic en `KindleVault.command`** lo arrancará.
-5. Si macOS dice "no se puede abrir porque es de un desarrollador no identificado", haz clic derecho → Abrir → Abrir.
+## Sincronización entre ordenadores
 
-### En Linux
+Pulsa la píldora de sincronización (arriba a la derecha):
 
-1. Asegúrate de tener Python 3 (la mayoría de distribuciones ya lo incluyen).
-2. Abre un terminal en la carpeta descomprimida y ejecuta `./KindleVault.command`, o haz doble clic si tu gestor de archivos lo permite.
+- **En el primer ordenador:** *Crear archivo de sincronización* y guárdalo en una carpeta que se sincronice sola (OneDrive, Dropbox…).
+- **En los demás:** *Vincular un archivo existente* y elige ese mismo archivo.
 
----
+A partir de ahí se sincroniza solo: al abrir la web, al volver a ella y tras cada importación. Por seguridad, Chrome pide **un clic** para usar el archivo en cada sesión nueva del navegador; la app te lo pregunta con un aviso.
 
-## Cómo usar la app
+La sincronización **combina** los datos: nunca borra nada y nunca sobrescribe un archivo que no ha podido leer.
 
-1. **Conecta tu Kindle al ordenador con su cable USB.** El sistema lo montará como una unidad (en Windows, una letra nueva; en macOS, un volumen llamado Kindle).
-2. En la app, pulsa el botón **"Sincronizar"** arriba a la derecha. Verás un mensaje con cuántos subrayados y palabras se han importado.
-3. **Puedes desconectar el Kindle**: la app guarda todo en una base de datos local en tu ordenador. Trabajarás siempre sobre esa copia local.
+## Dónde están tus datos
 
-### Pestañas
+- En el almacenamiento de tu navegador (IndexedDB), en cada ordenador.
+- En tu archivo de sincronización, si lo usas.
 
-- **Subrayados y notas**: vista principal. En la barra lateral izquierda puedes filtrar por idioma, por libros (selección múltiple) y por tipo (subrayados o notas).
-- **Vocabulario**: las palabras que has buscado en el diccionario del Kindle, con la frase de contexto donde apareció cada una.
-- **Biblioteca**: lista de tus libros con cuenta de subrayados.
+Este repositorio solo contiene el código: tus subrayados no se suben a GitHub ni a ningún servidor. Las únicas peticiones externas son las de las portadas (a Open Library) y las fuentes tipográficas (Google Fonts).
 
-### Exportar
+## Qué se importa
 
-Pulsa **"Exportar..."** arriba a la derecha. Verás un diálogo con tres elementos clave:
+| Tipo | Se muestra por defecto |
+|---|---|
+| Subrayados y notas | Sí |
+| Marcadores de página | Sí |
+| Sin texto (imágenes, tablas…) | No (filtro "Sin texto") |
+| Bloqueados por el límite de recortes de Amazon | No (filtro "Bloqueados") |
 
-- **Formato**: Markdown (recomendado para gitMind, Obsidian, Logseq), Texto plano, CSV o JSON.
-- **Presets**: tres botones rápidos con configuraciones predefinidas.
-- **Casillas individuales**: control granular sobre cada metadato.
+Los textos bloqueados por Amazon no se pueden recuperar: el Kindle no los escribe en `My Clippings.txt`.
 
-Los tres presets son:
-
-- **Completo**: incluye todo (libro, autor, idioma, ubicación, fecha, tipo, contexto, etc.).
-- **Solo texto**: exporta únicamente el contenido de los subrayados o las palabras, sin libro, autor, ubicación ni fecha. Esto es lo que pediste: el texto desnudo.
-- **Para estudio**: equilibrio útil para repasar — incluye libro, idioma y contexto, pero omite metadatos ruidosos como ubicaciones y fechas.
-
-Puedes empezar desde un preset y ajustar las casillas individuales a tu gusto. La vista previa abajo del diálogo se actualiza al instante para que veas exactamente qué saldrá.
-
-Al pulsar "Exportar archivo", se guarda en `~/.kindlevault/exports/` (en Windows: `C:\Users\<tu_usuario>\.kindlevault\exports\`). La carpeta se abre automáticamente en tu explorador de archivos.
-
----
-
-## Dónde se guardan tus datos
-
-Todo se guarda localmente en tu ordenador, en la carpeta:
-
-- **Windows**: `C:\Users\<tu_usuario>\.kindlevault\`
-- **macOS / Linux**: `~/.kindlevault/`
-
-Dentro de esa carpeta encontrarás:
-
-- `kindlevault.sqlite` — la base de datos con tus subrayados y vocabulario.
-- `exports/` — las exportaciones que generes.
-
-Tus datos no salen de tu ordenador.
-
----
-
-### Si la sincronización no extrae libros ni subrayados
-
-Esto suele pasar porque el formato de tu `My Clippings.txt` tiene alguna variación que el parser no reconoce. La app ahora detecta y muestra el problema:
-
-1. Pulsa el botón **"Diagnosticar"** (al lado de Sincronizar). La app analizará tu archivo sin importar nada y mostrará un panel con: número de bloques encontrados, bloques que parsean correctamente, bloques que fallan y la razón concreta de cada fallo.
-2. Si aparecen bloques fallidos, el panel mostrará las primeras líneas de cada uno. Cópialas y compártelas para añadir soporte.
-
-El parser actual reconoce subrayados y notas en español, inglés, alemán, francés, italiano y portugués, en formatos clásicos y modernos del firmware Kindle. Pero hay variaciones poco comunes que pueden quedarse fuera.
-
-### Otros problemas
-
-**"Sin Kindle (modo offline)" aunque está conectado.**
-Comprueba en el Finder/Explorador que el Kindle aparece como unidad montada. En macOS a veces hay que confirmar el permiso de "almacenamiento masivo" en el propio Kindle. La app busca un volumen que contenga `documents/My Clippings.txt` o `system/vocabulary/vocab.db`.
-
-**El puerto 5173 ya está en uso.**
-Significa que tienes otra instancia abierta. Cierra la otra ventana negra/terminal y vuelve a arrancar.
-
-**No puedo abrir el .command en macOS.**
-Es por la cuarentena de Gatekeeper. Haz clic derecho sobre el archivo, elige "Abrir" y confirma. Solo hace falta hacerlo una vez.
-
-**No detecta highlights aunque tengo muchos en el Kindle.**
-Asegúrate de que el archivo está en `documents/My Clippings.txt` (a veces los Kindles muy antiguos lo guardan en otra ruta). Si tu firmware está en un idioma exótico no soportado por el regex multi-idioma actual, dímelo y añadimos soporte.
-
----
-
-## Limitaciones honestas
-
-Esta versión es una app web local en Python, no una app de escritorio empaquetada. Funciona y hace todo lo que necesitas, pero a diferencia de un `.exe` o `.dmg` nativo:
-
-- Requiere Python 3.10+ instalado en el sistema.
-- Se ejecuta en una pestaña del navegador, no en una ventana propia.
-- Para cerrarla del todo hay que cerrar también la ventana negra/terminal.
-
-Si más adelante quieres una app verdaderamente nativa (un `.exe` o `.dmg` que se ejecute con doble clic sin Python), la base de código está estructurada para portarse a Tauri (Rust) o empaquetarse con PyInstaller siguiendo el plan maestro. Esa parte requiere compilar en cada sistema operativo destino.
-
----
-
-## Estructura del proyecto
+## Estructura del código
 
 ```
-KindleVault/
-├── KindleVault.bat        ← Doble clic en Windows
-├── KindleVault.command    ← Doble clic en macOS/Linux
-├── run.py                 ← Punto de entrada Python
-├── README.md              ← Este archivo
-└── app/
-    ├── core.py            ← Parser, BD, exportador
-    ├── server.py          ← Servidor HTTP local
-    ├── templates/
-    │   └── index.html     ← UI principal
-    └── static/
-        ├── styles.css     ← Estilos
-        └── app.js         ← Lógica frontend
+index.html          Página
+css/styles.css      Estilos (tema papel, modo oscuro automático, móvil)
+js/app.js           Interfaz
+js/parser.js        Lectura de My Clippings.txt y vocab.db
+js/sqlite-reader.js Lector de SQLite propio (sin dependencias)
+js/store.js         Biblioteca local en IndexedDB y combinación de datos
+js/sync.js          Archivo de sincronización
+js/kindle.js        Acceso a la unidad del Kindle
+js/covers.js        Portadas de Open Library
+js/export.js        Exportación (Markdown, TXT, CSV, JSON)
 ```
+
+No necesita compilación: GitHub Pages sirve los archivos tal cual. Para probarla en local, abre un servidor en la carpeta (por ejemplo `python3 -m http.server`) y entra en `http://localhost:8000`.

@@ -4,10 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KindleVault</title>
+<meta name="description" content="Subrayados, notas y vocabulario de tu Kindle, en el navegador.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='8' fill='%23ede6d5'/><text x='32' y='42' font-family='Georgia,serif' font-size='26' font-weight='600' text-anchor='middle' fill='%238b3a2f'>KV</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
@@ -20,22 +22,22 @@
     </div>
   </div>
   <div class="topbar-right">
-    <span id="kindle-status" class="status-pill">Detectando…</span>
-    <button id="btn-diagnose" class="btn btn-ghost" title="Inspeccionar archivo">Diagnosticar</button>
-    <button id="btn-sync" class="btn btn-primary">Sincronizar</button>
+    <button id="sync-pill" class="status-pill sync-pill" title="Sincronización">Sincronización</button>
+    <button id="btn-import" class="btn btn-primary">Importar del Kindle</button>
   </div>
 </header>
 
-<div id="diagnostic-banner" class="banner hidden"></div>
+<div id="banner" class="banner hidden"></div>
 
 <nav class="tabs">
   <button class="tab active" data-tab="highlights">Subrayados y notas</button>
   <button class="tab" data-tab="vocab">Vocabulario</button>
   <button class="tab" data-tab="books">Biblioteca</button>
+  <button id="btn-toggle-filters" class="tab tab-filters">Filtros</button>
 </nav>
 
 <main class="main">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <section class="filter-section">
       <div class="filter-title">Idioma</div>
       <div id="lang-filters" class="filter-list"></div>
@@ -49,29 +51,14 @@
         <button id="btn-select-none" class="chip">Ninguno</button>
       </div>
     </section>
-    <section class="filter-section type-section">
+    <section class="filter-section type-section" id="type-section">
       <div class="filter-title">Tipo</div>
       <div class="filter-list">
-        <label class="filter-item">
-          <input type="checkbox" class="type-filter" value="highlight" checked>
-          <span>Subrayados</span>
-        </label>
-        <label class="filter-item">
-          <input type="checkbox" class="type-filter" value="note" checked>
-          <span>Notas</span>
-        </label>
-        <label class="filter-item">
-          <input type="checkbox" class="type-filter" value="bookmark" checked>
-          <span>Marcadores</span>
-        </label>
-        <label class="filter-item">
-          <input type="checkbox" class="type-filter" value="empty">
-          <span title="Subrayados sin texto (imágenes, tablas...)">Sin texto</span>
-        </label>
-        <label class="filter-item">
-          <input type="checkbox" class="type-filter" value="dropped">
-          <span title="Bloqueados por DRM de Amazon">Bloqueados</span>
-        </label>
+        <label class="filter-item"><input type="checkbox" class="type-filter" value="highlight" checked><span>Subrayados</span></label>
+        <label class="filter-item"><input type="checkbox" class="type-filter" value="note" checked><span>Notas</span></label>
+        <label class="filter-item"><input type="checkbox" class="type-filter" value="bookmark" checked><span>Marcadores</span></label>
+        <label class="filter-item"><input type="checkbox" class="type-filter" value="empty"><span title="Subrayados sin texto (imágenes, tablas…)">Sin texto</span></label>
+        <label class="filter-item"><input type="checkbox" class="type-filter" value="dropped"><span title="Bloqueados por el límite de Amazon">Bloqueados</span></label>
       </div>
     </section>
   </aside>
@@ -79,37 +66,69 @@
   <section class="content">
     <div class="content-toolbar">
       <div class="search-wrap">
-        <input id="search" type="text" placeholder="Buscar en el contenido…">
+        <input id="search" type="search" placeholder="Buscar en el contenido…">
       </div>
       <div id="result-count" class="result-count"></div>
-      <button id="btn-fetch-covers" class="btn btn-ghost hidden">Buscar portadas</button>
       <button id="btn-export" class="btn btn-accent">Exportar</button>
     </div>
-    <div id="results" class="results">
-      <div class="empty">
-        <p>Pulsa <em>Sincronizar</em> para cargar los datos de tu Kindle.</p>
-      </div>
-    </div>
+    <div id="results" class="results"></div>
   </section>
 </main>
 
+<!-- Importar del Kindle (alternativa con archivos sueltos) -->
+<input id="kindle-files" type="file" multiple hidden>
+<input id="sync-readonly-file" type="file" hidden accept=".json,application/json">
+
+<!-- Diálogo: sincronización -->
+<div id="sync-dialog" class="dialog-backdrop hidden">
+  <div class="dialog dialog-narrow">
+    <header class="dialog-header">
+      <h2>Sincronización</h2>
+      <button class="btn-close" data-close="sync-dialog">×</button>
+    </header>
+    <div class="dialog-body" id="sync-body"></div>
+  </div>
+</div>
+
+<!-- Diálogo: importar del Kindle -->
+<div id="import-dialog" class="dialog-backdrop hidden">
+  <div class="dialog dialog-narrow">
+    <header class="dialog-header">
+      <h2>Importar del Kindle</h2>
+      <button class="btn-close" data-close="import-dialog">×</button>
+    </header>
+    <div class="dialog-body">
+      <ol class="steps">
+        <li>Conecta el Kindle al ordenador con el cable USB.</li>
+        <li>Pulsa <strong>Elegir el Kindle</strong> y selecciona la unidad del Kindle (por ejemplo <code>D:</code>), no una carpeta de dentro.</li>
+        <li>Si el navegador pregunta, permite que KindleVault <em>vea</em> los archivos. Solo los lee; nunca escribe en el Kindle.</li>
+      </ol>
+      <div class="dialog-actions-col">
+        <button id="btn-pick-kindle" class="btn btn-primary">Elegir el Kindle</button>
+        <button id="btn-pick-files" class="btn btn-ghost">Elegir los archivos a mano</button>
+      </div>
+      <p class="hint" id="import-hint">“A mano” sirve en cualquier navegador: elige <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>system/vocabulary/vocab.db</code> (la carpeta <code>system</code> está oculta: activa “Mostrar elementos ocultos” en el Explorador).</p>
+    </div>
+  </div>
+</div>
+
+<!-- Diálogo: exportar -->
 <div id="export-dialog" class="dialog-backdrop hidden">
   <div class="dialog">
     <header class="dialog-header">
-      <h2>Exportar</h2>
-      <button class="btn-close" id="btn-close-dialog">×</button>
+      <h2 id="export-title">Exportar</h2>
+      <button class="btn-close" data-close="export-dialog">×</button>
     </header>
     <div class="dialog-body">
       <div class="row">
-        <label class="label">Formato</label>
+        <label class="label" for="export-format">Formato</label>
         <select id="export-format" class="select">
           <option value="markdown">Markdown — para gitMind / Obsidian</option>
           <option value="txt">Texto plano</option>
-          <option value="csv">CSV</option>
+          <option value="csv">CSV (Excel)</option>
           <option value="json">JSON</option>
         </select>
       </div>
-
       <div class="row">
         <label class="label">Preset rápido</label>
         <div class="preset-group">
@@ -117,11 +136,10 @@
           <button class="btn-preset" data-preset="text-only">Solo texto</button>
           <button class="btn-preset" data-preset="study">Para estudio</button>
         </div>
-        <div class="hint">"Solo texto" exporta el contenido sin libro, autor, ubicación ni fecha.</div>
+        <div class="hint">“Solo texto” exporta el contenido sin libro, autor, ubicación ni fecha.</div>
       </div>
-
-      <div class="opt-section">
-        <div class="opt-section-title">Datos para subrayados / notas</div>
+      <div class="opt-section" id="opt-highlights">
+        <div class="opt-section-title">Datos de cada subrayado o nota</div>
         <div class="opt-grid">
           <label class="check-item"><input type="checkbox" data-opt="include_book_title" checked> <span>Título del libro</span></label>
           <label class="check-item"><input type="checkbox" data-opt="include_author" checked> <span>Autor</span></label>
@@ -131,9 +149,8 @@
           <label class="check-item"><input type="checkbox" data-opt="include_type" checked> <span>Tipo (subrayado/nota)</span></label>
         </div>
       </div>
-
-      <div class="opt-section">
-        <div class="opt-section-title">Datos para vocabulario</div>
+      <div class="opt-section" id="opt-vocab">
+        <div class="opt-section-title">Datos de cada palabra</div>
         <div class="opt-grid">
           <label class="check-item"><input type="checkbox" data-opt="include_context" checked> <span>Frase de contexto</span></label>
           <label class="check-item"><input type="checkbox" data-opt="include_word_language" checked> <span>Idioma de la palabra</span></label>
@@ -141,7 +158,6 @@
           <label class="check-item"><input type="checkbox" data-opt="include_lookup_date" checked> <span>Fecha de búsqueda</span></label>
         </div>
       </div>
-
       <div class="opt-section">
         <div class="opt-section-title">Estructura del archivo</div>
         <div class="opt-grid">
@@ -150,21 +166,20 @@
           <label class="check-item"><input type="checkbox" data-opt="include_main_heading" checked> <span>Título principal</span></label>
         </div>
       </div>
-
       <div class="preview-block">
-        <div class="opt-section-title">Vista previa</div>
-        <pre id="export-preview">Generando…</pre>
+        <div class="opt-section-title">Vista previa <span id="export-count" class="muted"></span></div>
+        <pre id="export-preview"></pre>
       </div>
     </div>
     <footer class="dialog-footer">
-      <button id="btn-cancel-export" class="btn">Cancelar</button>
-      <button id="btn-do-export" class="btn btn-primary">Exportar archivo</button>
+      <button id="btn-copy-export" class="btn">Copiar</button>
+      <button id="btn-do-export" class="btn btn-primary">Descargar archivo</button>
     </footer>
   </div>
 </div>
 
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast hidden" role="status"></div>
 
-<script src="/app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
