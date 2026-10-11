@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KindleVault</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">KV</div>
+    <div>
+      <div class="brand-name">KindleVault</div>
+      <div class="brand-sub" id="stats-line">cargando…</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="kindle-status" class="status-pill">Detectando…</span>
+    <button id="btn-diagnose" class="btn btn-ghost" title="Inspeccionar archivo">Diagnosticar</button>
+    <button id="btn-sync" class="btn btn-primary">Sincronizar</button>
+  </div>
+</header>
+
+<div id="diagnostic-banner" class="banner hidden"></div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="highlights">Subrayados y notas</button>
+  <button class="tab" data-tab="vocab">Vocabulario</button>
+  <button class="tab" data-tab="books">Biblioteca</button>
+</nav>
+
+<main class="main">
+  <aside class="sidebar">
+    <section class="filter-section">
+      <div class="filter-title">Idioma</div>
+      <div id="lang-filters" class="filter-list"></div>
+    </section>
+    <section class="filter-section">
+      <div class="filter-title">Libros</div>
+      <input id="book-search" type="text" placeholder="Filtrar libros…" class="input-sm">
+      <div id="book-filters" class="filter-list scroll"></div>
+      <div class="filter-actions">
+        <button id="btn-select-all" class="chip">Todos</button>
+        <button id="btn-select-none" class="chip">Ninguno</button>
+      </div>
+    </section>
+    <section class="filter-section type-section">
+      <div class="filter-title">Tipo</div>
+      <div class="filter-list">
+        <label class="filter-item">
+          <input type="checkbox" class="type-filter" value="highlight" checked>
+          <span>Subrayados</span>
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" class="type-filter" value="note" checked>
+          <span>Notas</span>
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" class="type-filter" value="bookmark" checked>
+          <span>Marcadores</span>
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" class="type-filter" value="empty">
+          <span title="Subrayados sin texto (imágenes, tablas...)">Sin texto</span>
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" class="type-filter" value="dropped">
+          <span title="Bloqueados por DRM de Amazon">Bloqueados</span>
+        </label>
+      </div>
+    </section>
+  </aside>
+
+  <section class="content">
+    <div class="content-toolbar">
+      <div class="search-wrap">
+        <input id="search" type="text" placeholder="Buscar en el contenido…">
+      </div>
+      <div id="result-count" class="result-count"></div>
+      <button id="btn-fetch-covers" class="btn btn-ghost hidden">Buscar portadas</button>
+      <button id="btn-export" class="btn btn-accent">Exportar</button>
+    </div>
+    <div id="results" class="results">
+      <div class="empty">
+        <p>Pulsa <em>Sincronizar</em> para cargar los datos de tu Kindle.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="export-dialog" class="dialog-backdrop hidden">
+  <div class="dialog">
+    <header class="dialog-header">
+      <h2>Exportar</h2>
+      <button class="btn-close" id="btn-close-dialog">×</button>
+    </header>
+    <div class="dialog-body">
+      <div class="row">
+        <label class="label">Formato</label>
+        <select id="export-format" class="select">
+          <option value="markdown">Markdown — para gitMind / Obsidian</option>
+          <option value="txt">Texto plano</option>
+          <option value="csv">CSV</option>
+          <option value="json">JSON</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label class="label">Preset rápido</label>
+        <div class="preset-group">
+          <button class="btn-preset" data-preset="full">Completo</button>
+          <button class="btn-preset" data-preset="text-only">Solo texto</button>
+          <button class="btn-preset" data-preset="study">Para estudio</button>
+        </div>
+        <div class="hint">"Solo texto" exporta el contenido sin libro, autor, ubicación ni fecha.</div>
+      </div>
+
+      <div class="opt-section">
+        <div class="opt-section-title">Datos para subrayados / notas</div>
+        <div class="opt-grid">
+          <label class="check-item"><input type="checkbox" data-opt="include_book_title" checked> <span>Título del libro</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_author" checked> <span>Autor</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_language" checked> <span>Idioma</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_location" checked> <span>Ubicación / página</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_date" checked> <span>Fecha</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_type" checked> <span>Tipo (subrayado/nota)</span></label>
+        </div>
+      </div>
+
+      <div class="opt-section">
+        <div class="opt-section-title">Datos para vocabulario</div>
+        <div class="opt-grid">
+          <label class="check-item"><input type="checkbox" data-opt="include_context" checked> <span>Frase de contexto</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_word_language" checked> <span>Idioma de la palabra</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_source_book" checked> <span>Libro de origen</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_lookup_date" checked> <span>Fecha de búsqueda</span></label>
+        </div>
+      </div>
+
+      <div class="opt-section">
+        <div class="opt-section-title">Estructura del archivo</div>
+        <div class="opt-grid">
+          <label class="check-item"><input type="checkbox" data-opt="group_by_book" checked> <span>Agrupar por libro</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_front_matter" checked> <span>Cabecera YAML</span></label>
+          <label class="check-item"><input type="checkbox" data-opt="include_main_heading" checked> <span>Título principal</span></label>
+        </div>
+      </div>
+
+      <div class="preview-block">
+        <div class="opt-section-title">Vista previa</div>
+        <pre id="export-preview">Generando…</pre>
+      </div>
+    </div>
+    <footer class="dialog-footer">
+      <button id="btn-cancel-export" class="btn">Cancelar</button>
+      <button id="btn-do-export" class="btn btn-primary">Exportar archivo</button>
+    </footer>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
