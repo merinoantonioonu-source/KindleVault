@@ -199,6 +199,8 @@ export function readVocabDb(dbBytes, walBytes = null) {
       book_authors: b ? b.authors : null,
       book_lang: b ? b.lang : null,
       looked_up_at: ts ? new Date(ts).toISOString() : null,
+      // En el Vocabulary Builder del Kindle, category 100 = «Aprendida».
+      mastered: Number(w.category) === 100,
     });
   }
   entries.sort((a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || ''));

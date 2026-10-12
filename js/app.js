@@ -3,7 +3,7 @@ import { parseClippings, readVocabDb } from './parser.js';
 import { SyncManager, syncSupported } from './sync.js';
 import { pickKindleFolder, readKindleFiles, folderAccessSupported } from './kindle.js';
 import { findCover } from './covers.js';
-import { buildExport, PRESETS, DEFAULT_OPTIONS } from './export.js';
+import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks } from './export.js';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -13,6 +13,7 @@ const state = {
   selectedBooks: new Set(),
   selectedLangs: new Set(),
   selectedTypes: new Set(['highlight', 'note', 'bookmark']),
+  selectedStatuses: new Set(['new', 'sent']),
   search: '',
   results: [],
 };
@@ -35,6 +36,12 @@ const fmtWhen = iso => {
     ? d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
+
+const LANG_NAMES = { es: 'Español', en: 'Inglés', fr: 'Francés', de: 'Alemán', it: 'Italiano', pt: 'Portugués', '?': 'Sin detectar' };
+const langName = l => LANG_NAMES[l] || String(l).toUpperCase();
+
+const STATUS_LABELS = { new: 'Nuevas', sent: 'Enviadas a VocaMaster', known: 'Me la sé', ignored: 'Ignoradas' };
+const STATUS_TAGS = { sent: 'Enviada', known: 'Me la sé', ignored: 'Ignorada' };
 
 let toastTimer = null;
 function toast(msg) {
@@ -207,6 +214,10 @@ async function processImport(r) {
     lines.push(`Subrayados, notas y marcadores: ${fmtNum(added)} nuevos · ${fmtNum(dup)} ya estaban.`);
     lines.push(`Archivo: ${fmtNum(diag.total_blocks)} bloques · ${fmtNum(diag.parsed_ok)} leídos${diag.parsed_failed ? ` · ${diag.parsed_failed} sin leer` : ''}.`);
     if (diag.parsed_failed) kind = 'warning';
+    const sup = lib.supersededCount();
+    if (sup) lines.push(sup === 1
+      ? 'Oculta 1 versión anterior de un subrayado que luego ampliaste (filtro «Versiones anteriores»).'
+      : `Ocultas ${fmtNum(sup)} versiones anteriores de subrayados que luego ampliaste (filtro «Versiones anteriores»).`);
   } else {
     lines.push('No se encontró My Clippings.txt (subrayados).');
     kind = 'warning';
@@ -282,10 +293,9 @@ function renderLangFilters() {
   const c = $('#lang-filters');
   const langs = lib.listLanguages();
   if (!langs.length) { c.innerHTML = '<div class="filter-empty">Sin datos.</div>'; return; }
-  const names = { es: 'Español', en: 'Inglés', fr: 'Francés', de: 'Alemán', it: 'Italiano', pt: 'Portugués', '?': 'Sin detectar' };
   c.innerHTML = langs.map(l => `<label>
       <input type="checkbox" class="lang-cb" value="${esc(l.lang)}" ${state.selectedLangs.has(l.lang) ? 'checked' : ''}>
-      <span>${esc(names[l.lang] || l.lang.toUpperCase())}</span>
+      <span>${esc(langName(l.lang))}</span>
       <span class="count">${l.count}</span>
     </label>`).join('');
   $$('.lang-cb').forEach(cb => cb.addEventListener('change', () => {
@@ -315,11 +325,30 @@ function renderBookFilters() {
   }));
 }
 
+function renderStatusFilters() {
+  const counts = lib.vocabStatusCounts();
+  $('#status-filters').innerHTML = Object.entries(STATUS_LABELS).map(([st, label]) => `<label>
+      <input type="checkbox" class="status-cb" value="${st}" ${state.selectedStatuses.has(st) ? 'checked' : ''}>
+      <span>${esc(label)}</span>
+      <span class="count">${fmtNum(counts[st])}</span>
+    </label>`).join('');
+  $$('.status-cb').forEach(cb => cb.addEventListener('change', () => {
+    cb.checked ? state.selectedStatuses.add(cb.value) : state.selectedStatuses.delete(cb.value);
+    reload();
+  }));
+}
+
+function renderSupersededCount() {
+  const n = lib.supersededCount();
+  $('#superseded-count').textContent = n ? fmtNum(n) : '';
+}
+
 function currentFilters() {
   return {
     bookKeys: state.selectedBooks,
     languages: state.selectedLangs,
     types: state.selectedTypes,
+    statuses: state.selectedStatuses,
     search: state.search,
   };
 }
@@ -331,13 +360,17 @@ function setTab(tab) {
   state.tab = tab;
   $$('.tab[data-tab]').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   $('#type-section').classList.toggle('hidden', tab !== 'highlights');
+  $('#status-section').classList.toggle('hidden', tab !== 'vocab');
   $('#btn-export').classList.toggle('hidden', tab === 'books');
+  $('#btn-vocamaster').classList.toggle('hidden', tab !== 'vocab');
   renderBookFilters();
   reload();
 }
 
 function refreshAll() {
   renderStats();
+  renderSupersededCount();
+  renderStatusFilters();
   renderLangFilters();
   renderBookFilters();
   reload();
@@ -406,13 +439,21 @@ function renderHighlights(append = false) {
     if (h.type === 'bookmark') tags.push('<span class="h-tag bookmark-tag">Marcador</span>');
     if (h.type === 'empty') tags.push('<span class="h-tag empty-tag">Sin texto</span>');
     if (h.type === 'dropped') tags.push('<span class="h-tag dropped-tag">Bloqueado</span>');
+    if (h.superseded) tags.push('<span class="h-tag empty-tag" title="Luego ampliaste este subrayado en el Kindle">Versión anterior</span>');
     if (h.language) tags.push(`<span class="h-tag">${esc(h.language.toUpperCase())}</span>`);
     let body;
     if (h.type === 'bookmark') body = '<p class="h-content empty-content">Marcador colocado en esta posición.</p>';
     else if (h.type === 'empty') body = '<p class="h-content empty-content">Subrayado sin texto extraíble (imagen, tabla o pie de página).</p>';
     else if (h.type === 'dropped') body = '<p class="h-content empty-content">Texto bloqueado por el límite de recortes de Amazon: el Kindle no lo exportó.</p>';
     else body = `<p class="h-content">${esc(h.content)}</p>`;
-    return `<article class="h-card ${h.type === 'highlight' ? '' : h.type}">
+    if (h.parent) {
+      const p = h.parent.length > 220 ? h.parent.slice(0, 220) + '…' : h.parent;
+      body = `<blockquote class="h-parent">${esc(p)}</blockquote>${body}`;
+    }
+    for (const n of h.notes || []) {
+      body += `<div class="h-note"><span class="h-note-label">Tu nota</span>${esc(n.content)}</div>`;
+    }
+    return `<article class="h-card ${h.type === 'highlight' ? '' : h.type}${h.superseded ? ' superseded' : ''}">
       <div class="h-meta"><div class="h-meta-book">${meta.join('<span class="sep">·</span>')}</div><div class="h-meta-tags">${tags.join('')}</div></div>
       ${body}</article>`;
   }).join('');
@@ -431,17 +472,43 @@ function renderVocab(append = false) {
   const start = append ? renderedCount : 0;
   const end = Math.min(items.length, start + RENDER_LIMIT);
   const html = items.slice(start, end).map(v => `
-    <article class="v-card">
-      <div><span class="v-word">${esc(v.word)}</span>${v.language ? `<span class="v-word-lang">${esc(v.language)}</span>` : ''}</div>
+    <article class="v-card" data-wkey="${esc(v.wkey)}">
+      <div>
+        <span class="v-word">${esc(v.word)}</span>${v.language ? `<span class="v-word-lang">${esc(v.language)}</span>` : ''}
+        ${v.stem && v.stem.toLowerCase() !== v.word.toLowerCase() ? `<div class="v-stem">forma base: ${esc(v.stem)}</div>` : ''}
+      </div>
       <div>
         ${v.context ? `<div class="v-context">${highlightWord(v.context, v.word)}</div>` : ''}
         ${v.book_title ? `<div class="v-source">de ${esc(v.book_title)}${v.looked_up_at ? ' · ' + esc(fmtWhen(v.looked_up_at)) : ''}</div>` : ''}
+        <div class="v-actions">${wordActionsHtml(v.status)}</div>
       </div>
     </article>`).join('');
   if (append) { c.querySelector('.load-more')?.remove(); c.insertAdjacentHTML('beforeend', html); }
   else { c.innerHTML = html; c.scrollTop = 0; }
   renderedCount = end;
   if (end < items.length) addLoadMore(c, items.length - end, () => renderVocab(true));
+}
+
+function wordActionsHtml(status) {
+  const out = [];
+  if (status) out.push(`<span class="v-status v-status-${status}">${esc(STATUS_TAGS[status])}</span>`);
+  if (status !== 'known') out.push('<button class="link-btn" data-word-act="known">Me la sé</button>');
+  if (status !== 'ignored') out.push('<button class="link-btn" data-word-act="ignored">Ignorar</button>');
+  if (status) out.push('<button class="link-btn" data-word-act="clear">Quitar marca</button>');
+  return out.join('');
+}
+
+/** Cambia el estado de una palabra y repinta sus tarjetas sin perder el sitio en la lista. */
+async function setWordStatus(keys, status) {
+  for (const k of keys) lib.setWordStatus(k, status);
+  for (const k of keys) {
+    $$('.v-card').filter(c => c.dataset.wkey === k).forEach(c => {
+      c.querySelector('.v-actions').innerHTML = wordActionsHtml(status);
+    });
+  }
+  renderStatusFilters();
+  await lib.save();
+  sync.schedule();
 }
 
 function highlightWord(context, word) {
@@ -527,13 +594,86 @@ function refreshPreview() {
   $('#export-count').textContent = `· ${fmtNum(ex.count)} ${ex.kind === 'vocab' ? 'palabras' : 'elementos'}`;
 }
 
+function refreshFormatHints() {
+  const kind = exportKind(), fmt = $('#export-format').value;
+  $('#format-hint-ultramind').classList.toggle('hidden', fmt !== 'ultramind');
+  $('#format-hint-vocab').classList.toggle('hidden', !(kind === 'vocab' && fmt === 'csv'));
+}
+
 function openExport() {
   const kind = exportKind();
   $('#export-title').textContent = kind === 'vocab' ? 'Exportar vocabulario' : 'Exportar subrayados y notas';
   $('#opt-highlights').classList.toggle('hidden', kind === 'vocab');
   $('#opt-vocab').classList.toggle('hidden', kind !== 'vocab');
+  // El mapa mental es para subrayados; el vocabulario va a VocaMaster.
+  $('#opt-format-ultramind').hidden = kind === 'vocab';
+  $('#opt-format-ultramind').disabled = kind === 'vocab';
+  if (kind === 'vocab' && $('#export-format').value === 'ultramind') $('#export-format').value = 'markdown';
+  refreshFormatHints();
   if (!$('.btn-preset.active')) setPreset('full'); else refreshPreview();
   openDialog('export-dialog');
+}
+
+// ============================================================
+//  Enviar a VocaMaster
+// ============================================================
+let vmBlocks = [];
+
+function renderVocaMaster() {
+  const items = lib.filterVocab({ ...currentFilters(), statuses: null });
+  vmBlocks = vocamasterBlocks(items, {
+    baseForm: $('#vm-base-form').checked,
+    includeSent: $('#vm-include-sent').checked,
+  });
+  const c = $('#vm-blocks');
+  if (!vmBlocks.length) {
+    c.innerHTML = `<div class="empty"><p>No hay palabras nuevas que enviar con estos filtros.${$('#vm-include-sent').checked ? '' : ' Si quieres repetir las ya enviadas, marca «Incluir las ya enviadas».'}</p></div>`;
+    return;
+  }
+  const langs = new Set(vmBlocks.map(b => b.lang));
+  const words = vmBlocks.reduce((n, b) => n + b.terms.length, 0);
+  let html = `<p class="vm-summary">${fmtNum(words)} palabras en ${fmtNum(vmBlocks.length)} bloque${vmBlocks.length === 1 ? '' : 's'}${langs.size > 1 ? `, separadas por idioma (cada idioma va a su lista de VocaMaster)` : ''}.</p>`;
+  html += vmBlocks.map((b, i) => {
+    const preview = b.terms.slice(0, 12).join(', ') + (b.terms.length > 12 ? '…' : '');
+    return `<div class="vm-block" data-i="${i}">
+      <div class="vm-block-head">
+        <div><strong>${esc(langName(b.lang))}</strong>${b.total > 1 ? ` · bloque ${b.index} de ${b.total}` : ''} · ${fmtNum(b.terms.length)} palabras</div>
+        <button class="btn btn-primary" data-vm-copy="${i}">Copiar</button>
+      </div>
+      <div class="vm-preview">${esc(preview)}</div>
+      <textarea class="vm-fallback hidden" readonly rows="6">${esc(b.text)}</textarea>
+    </div>`;
+  }).join('');
+  c.innerHTML = html;
+  c.querySelectorAll('[data-vm-copy]').forEach(btn => { btn.onclick = () => copyVocaMasterBlock(+btn.dataset.vmCopy, btn); });
+}
+
+async function copyVocaMasterBlock(i, btn) {
+  const b = vmBlocks[i];
+  const box = btn.closest('.vm-block');
+  try {
+    await navigator.clipboard.writeText(b.text);
+  } catch {
+    // Sin permiso de portapapeles: se enseña el texto seleccionado para copiarlo a mano.
+    const ta = box.querySelector('.vm-fallback');
+    ta.classList.remove('hidden');
+    ta.select();
+    toast('No pude copiar solo: pulsa Ctrl+C para copiar el texto seleccionado');
+  }
+  btn.textContent = '✓ Copiado';
+  btn.classList.replace('btn-primary', 'btn-ghost');
+  box.classList.add('done');
+  const keys = b.keys.filter(k => {
+    const st = lib.wordStatus.get(k);
+    return !st || !st.status;
+  });
+  if (keys.length) await setWordStatus(keys, 'sent');
+  toast(`✓ ${fmtNum(b.terms.length)} palabras copiadas: pégalas en VocaMaster → + → Vocabulario → Pegar Texto`);
+}
+
+function openVocaMaster() {
+  renderVocaMaster();
+  openDialog('vocamaster-dialog');
 }
 
 function download(blob, filename) {
@@ -595,7 +735,17 @@ function wire() {
   });
 
   $('#btn-export').onclick = openExport;
-  $('#export-format').onchange = refreshPreview;
+  $('#export-format').onchange = () => { refreshFormatHints(); refreshPreview(); };
+  $('#btn-vocamaster').onclick = openVocaMaster;
+  $('#vm-base-form').onchange = renderVocaMaster;
+  $('#vm-include-sent').onchange = renderVocaMaster;
+  $('#results').addEventListener('click', e => {
+    const btn = e.target.closest('[data-word-act]');
+    if (!btn) return;
+    const card = btn.closest('.v-card');
+    const act = btn.dataset.wordAct;
+    setWordStatus([card.dataset.wkey], act === 'clear' ? null : act);
+  });
   $$('.btn-preset').forEach(b => { b.onclick = () => setPreset(b.dataset.preset); });
   $$('#export-dialog input[data-opt]').forEach(cb => cb.addEventListener('change', () => {
     $$('.btn-preset').forEach(b => b.classList.remove('active'));
