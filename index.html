@@ -135,10 +135,10 @@
           <option value="csv">CSV (Excel)</option>
           <option value="json">JSON</option>
         </select>
-        <div class="hint hidden" id="format-hint-ultramind">Cada subrayado será una rama del mapa; tus notas, la ubicación y la fecha van en la nota de esa rama. En UltraMind: <strong>Abrir o importar</strong> y arrastra el archivo descargado, o pega ahí el texto copiado y pulsa <strong>Importar el texto</strong>.</div>
+        <div class="hint hidden" id="format-hint-ultramind">Un mapa por libro: el título es el tema central y cada subrayado, una rama. Solo van los subrayados; las notas que escribiste en el Kindle quedan en la nota de su rama. En UltraMind: <strong>Abrir o importar</strong> y arrastra el archivo, o pega ahí el texto copiado (con un solo libro) y pulsa <strong>Importar el texto</strong>.</div>
         <div class="hint hidden" id="format-hint-vocab">Para estudiar estas palabras en VocaMaster, usa mejor el botón <strong>Enviar a VocaMaster</strong>: VocaMaster no lee bien este CSV.</div>
       </div>
-      <div class="row">
+      <div class="row" id="row-presets">
         <label class="label">Preset rápido</label>
         <div class="preset-group">
           <button class="btn-preset" data-preset="full">Completo</button>
@@ -167,7 +167,7 @@
           <label class="check-item"><input type="checkbox" data-opt="include_lookup_date" checked> <span>Fecha de búsqueda</span></label>
         </div>
       </div>
-      <div class="opt-section">
+      <div class="opt-section" id="opt-structure">
         <div class="opt-section-title">Estructura del archivo</div>
         <div class="opt-grid">
           <label class="check-item"><input type="checkbox" data-opt="group_by_book" checked> <span>Agrupar por libro</span></label>
@@ -197,12 +197,13 @@
     <div class="dialog-body">
       <ol class="steps">
         <li>Pulsa <strong>Copiar</strong> en un bloque.</li>
-        <li>En VocaMaster, con el idioma del bloque elegido, pulsa el botón <strong>+</strong> → <strong>Vocabulario</strong> → <strong>✍️ Pegar Texto</strong>, pega y pulsa <strong>🚀 Procesar Texto</strong>. Su IA pondrá la traducción, la definición y un ejemplo.</li>
+        <li>En VocaMaster, con el idioma del bloque elegido, pulsa el botón <strong>+</strong> → <strong>Vocabulario</strong> → <strong>✍️ Pegar Texto</strong>, pega y pulsa <strong>🚀 Procesar Texto</strong>. Su IA pondrá la traducción y la definición, y la frase del libro quedará como ejemplo.</li>
         <li>Repite con el siguiente bloque.</li>
       </ol>
       <div class="opt-grid vm-options">
         <label class="check-item"><input type="checkbox" id="vm-base-form" checked> <span>Forma base («run», no «ran»)</span></label>
         <label class="check-item"><input type="checkbox" id="vm-include-sent"> <span>Incluir las ya enviadas</span></label>
+        <label class="check-item"><input type="checkbox" id="vm-with-context" checked> <span>Con la frase del libro como ejemplo</span></label>
       </div>
       <p class="hint">Se usan los filtros de libro e idioma de la izquierda. No van las palabras marcadas como «Me la sé» ni «Ignorar», y cada palabra va una sola vez. Al copiar un bloque, sus palabras quedan marcadas como «Enviada» para no repetirlas la próxima vez.</p>
       <div id="vm-blocks" class="vm-blocks"></div>

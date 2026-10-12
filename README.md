@@ -16,13 +16,13 @@ Puedes repetir la importación cuando quieras; lo que ya estaba no se duplica.
 
 ## Llevar los subrayados a UltraMind (mapa mental)
 
-En **Subrayados y notas**, pulsa **Exportar** y elige el formato **UltraMind — mapa mental**. Cada libro es una rama y cada subrayado cuelga de él; tus notas del Kindle, la ubicación y la fecha van en la nota de cada rama, para que el mapa quede limpio. Con un solo libro filtrado, el libro es el tema central.
+En **Subrayados y notas**, pulsa **Exportar** y elige el formato **UltraMind — mapa mental**. Sale **un mapa por libro**: el título es el tema central y cada subrayado, una rama. No lleva ubicación, fecha ni autor; solo las notas que escribiste tú en el Kindle, guardadas en la nota de su subrayado. Con varios libros se descarga un archivo por libro.
 
-En UltraMind: **Abrir o importar** y arrastra el archivo descargado, o pega allí el texto (botón **Copiar**) y pulsa **Importar el texto**.
+En UltraMind: **Abrir o importar** y arrastra el archivo, o pega allí el texto (botón **Copiar**, con un solo libro filtrado) y pulsa **Importar el texto**.
 
 ## Estudiar el vocabulario en VocaMaster
 
-En **Vocabulario**, pulsa **Enviar a VocaMaster**. Las palabras salen en bloques de 50, separados por idioma, una por línea y sin repetir (en su forma base: «run» en vez de «ran», si quieres). Copia un bloque y pégalo en VocaMaster: botón **+** → **Vocabulario** → **✍️ Pegar Texto** → **🚀 Procesar Texto**. La IA de VocaMaster pone la traducción, la definición y un ejemplo.
+En **Vocabulario**, pulsa **Enviar a VocaMaster**. Las palabras salen en bloques de hasta 50, separados por idioma, sin repetir (en su forma base: «run» en vez de «ran», si quieres). Cada línea va como `palabra | frase del libro`. Copia un bloque y pégalo en VocaMaster: botón **+** → **Vocabulario** → **✍️ Pegar Texto** → **🚀 Procesar Texto**. La IA de VocaMaster pone la traducción y la definición del sentido que la palabra tiene en esa frase, y guarda la frase del libro como ejemplo.
 
 Al copiar un bloque, sus palabras quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** de la izquierda decide cuáles se ven. Estas marcas viajan con la sincronización.
 

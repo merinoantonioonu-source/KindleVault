@@ -80,87 +80,80 @@ export function highlightsToMarkdown(items, o) {
 // ---------- UltraMind ----------
 // UltraMind lee Markdown así: cada título (#) y cada viñeta (-) es un tema del
 // mapa, y las líneas que empiezan por «>» son la nota del tema de encima.
-// Por eso cada subrayado va como viñeta y lo demás (tus notas, la ubicación,
-// la fecha, el autor) como nota, para que el mapa quede limpio.
+// Un mapa por libro: el título es el tema central y cada subrayado una rama.
+// Lo único que va en la nota de una rama es lo que escribiste tú en el Kindle;
+// nada de ubicación, fecha ni autor.
 const oneLine = s => String(s || '').replace(/\s+/g, ' ').trim();
 const noteLines = text => String(text).split(/\r?\n/).map(l => `> ${l}`);
 
-export const ULTRAMIND_ROOT = 'Mis subrayados de Kindle';
-
-export function highlightsToUltraMind(items, o) {
-  const useful = items.filter(h => h.type === 'highlight' || h.type === 'note');
-  const lines = [];
-  const emitItem = h => {
-    const label = h.type === 'note' && o.include_type ? 'Nota: ' : '';
-    lines.push(`- ${label}${oneLine(h.content)}`);
-    for (const n of h.notes || []) lines.push(...noteLines(o.include_type ? `Nota: ${n.content}` : n.content));
-    const meta = [];
-    if (o.include_location) { const l = locLabel(h); if (l) meta.push(l); }
-    if (o.include_date && h.highlighted_at) meta.push(fmtDate(h.highlighted_at));
-    if (meta.length) lines.push(`> ${meta.join(' · ')}`);
-  };
-  const bookNote = group => {
-    const sub = [];
-    if (o.include_author && group[0].author) sub.push(group[0].author);
-    if (o.include_language && group[0].language) sub.push(`idioma: ${group[0].language}`);
-    if (sub.length) lines.push(`> ${sub.join(' · ')}`);
-  };
-  const grouped = o.group_by_book && o.include_book_title;
-  const groups = grouped ? groupByTitle(useful) : null;
-  if (groups && groups.length === 1) {
-    // Un solo libro: el libro es el tema central.
-    lines.push(`# ${oneLine(groups[0][0])}`);
-    bookNote(groups[0][1]);
-    groups[0][1].forEach(emitItem);
-  } else {
-    lines.push(`# ${ULTRAMIND_ROOT}`);
-    if (groups) {
-      for (const [title, group] of groups) {
-        lines.push(`## ${oneLine(title)}`);
-        bookNote(group);
-        group.forEach(emitItem);
-      }
-    } else useful.forEach(emitItem);
+function ultramindMap(title, group) {
+  const lines = [`# ${oneLine(title)}`];
+  for (const h of group) {
+    // Una nota sin subrayado al que unirla se queda como rama propia.
+    lines.push(`- ${h.type === 'note' ? 'Nota: ' : ''}${oneLine(h.content)}`);
+    for (const n of h.notes || []) lines.push(...noteLines(n.content));
   }
   return lines.join('\n') + '\n';
 }
 
-// ---------- VocaMaster ----------
-// VocaMaster (Añadir → «Pegar texto») toma cada línea como una palabra y su IA
-// rellena traducción, definición y ejemplo. Se le manda en bloques pequeños,
-// separados por idioma, porque cada lista de VocaMaster es de un idioma y la
-// IA trabaja mejor con listas cortas.
-export const VOCAMASTER_BLOCK_SIZE = 50;
+const safeFileName = s => oneLine(s).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'mapa';
 
-export function vocamasterBlocks(items, { baseForm = true, includeSent = false, blockSize = VOCAMASTER_BLOCK_SIZE } = {}) {
+/** Un mapa por libro: [{ title, filename, content }]. */
+export function ultramindMaps(items) {
+  const useful = items.filter(h => h.type === 'highlight' || h.type === 'note');
+  return groupByTitle(useful).map(([title, group]) => ({
+    title,
+    filename: `${safeFileName(title)}.md`,
+    content: ultramindMap(title, group),
+  }));
+}
+
+// ---------- VocaMaster ----------
+// VocaMaster (+ → Vocabulario → «Pegar texto») toma cada línea como una
+// palabra y su IA rellena traducción, definición y ejemplo. Cada línea va como
+// «palabra | frase del libro»: VocaMaster guarda esa frase como ejemplo y la
+// usa para traducir el sentido que la palabra tiene ahí. Se manda en bloques
+// pequeños y separados por idioma, porque cada lista de VocaMaster es de un
+// idioma y la IA trabaja mejor con listas cortas.
+export const VOCAMASTER_BLOCK_SIZE = 50;
+const VOCAMASTER_BLOCK_CHARS = 20000; // VocaMaster lee como mucho 30.000 caracteres de una vez
+
+export function vocamasterBlocks(items, { baseForm = true, includeSent = false, withContext = true, blockSize = VOCAMASTER_BLOCK_SIZE } = {}) {
   const byLang = new Map();
   for (const v of items) {
     if (v.status === 'known' || v.status === 'ignored') continue;
     if (v.status === 'sent' && !includeSent) continue;
-    const term = oneLine(baseForm && v.stem ? v.stem : v.word);
+    const term = oneLine(baseForm && v.stem ? v.stem : v.word).replace(/\|/g, '/');
     if (!term) continue;
     const lang = v.language || '?';
     if (!byLang.has(lang)) byLang.set(lang, new Map());
     const words = byLang.get(lang);
     const k = term.toLowerCase();
-    if (!words.has(k)) words.set(k, { term, keys: new Set() });
-    words.get(k).keys.add(v.wkey);
+    // Si la palabra se buscó varias veces, va la frase más reciente (la lista llega ordenada así).
+    if (!words.has(k)) words.set(k, { term, context: oneLine(v.context).replace(/\|/g, '/'), keys: new Set() });
+    const w = words.get(k);
+    if (!w.context && v.context) w.context = oneLine(v.context).replace(/\|/g, '/');
+    w.keys.add(v.wkey);
   }
+  const lineOf = w => (withContext && w.context ? `${w.term} | ${w.context}` : w.term);
   const blocks = [];
   for (const [lang, words] of byLang) {
-    const list = [...words.values()];
-    const total = Math.ceil(list.length / blockSize);
-    for (let i = 0; i < list.length; i += blockSize) {
-      const part = list.slice(i, i + blockSize);
-      blocks.push({
-        lang,
-        index: i / blockSize + 1,
-        total,
-        terms: part.map(w => w.term),
-        keys: [...new Set(part.flatMap(w => [...w.keys]))],
-        text: part.map(w => w.term).join('\n'),
-      });
+    const parts = [];
+    let cur = [], chars = 0;
+    for (const w of words.values()) {
+      const len = lineOf(w).length + 1;
+      if (cur.length && (cur.length >= blockSize || chars + len > VOCAMASTER_BLOCK_CHARS)) { parts.push(cur); cur = []; chars = 0; }
+      cur.push(w); chars += len;
     }
+    if (cur.length) parts.push(cur);
+    parts.forEach((part, i) => blocks.push({
+      lang,
+      index: i + 1,
+      total: parts.length,
+      terms: part.map(w => w.term),
+      keys: [...new Set(part.flatMap(w => [...w.keys]))],
+      text: part.map(lineOf).join('\n'),
+    }));
   }
   return blocks;
 }
@@ -253,7 +246,7 @@ export function buildExport(kind, format, items, options) {
   let content;
   if (kind === 'highlights') {
     items = items.map(h => ({ ...h, notes_text: (h.notes || []).map(n => n.content).join(' / ') }));
-    if (format === 'ultramind') content = highlightsToUltraMind(items, o);
+    if (format === 'ultramind') content = ultramindMaps(items).map(m => m.content).join('\n');
     else if (format === 'markdown') content = highlightsToMarkdown(items, o);
     else if (format === 'txt') content = highlightsToTxt(items, o);
     else if (format === 'csv') content = toCsv(items, highlightCols(o));

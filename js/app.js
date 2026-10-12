@@ -3,7 +3,7 @@ import { parseClippings, readVocabDb } from './parser.js';
 import { SyncManager, syncSupported } from './sync.js';
 import { pickKindleFolder, readKindleFiles, folderAccessSupported } from './kindle.js';
 import { findCover } from './covers.js';
-import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks } from './export.js';
+import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks, ultramindMaps } from './export.js';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -582,21 +582,40 @@ function setPreset(name) {
   refreshPreview();
 }
 
+const isUltraMind = () => exportKind() === 'highlights' && $('#export-format').value === 'ultramind';
+
 function currentExport() {
   const kind = exportKind();
   const items = kind === 'vocab' ? lib.filterVocab(currentFilters()) : lib.filterHighlights(currentFilters());
-  return { ...buildExport(kind, $('#export-format').value, items, getExportOptions()), count: items.length, kind };
+  const ex = { ...buildExport(kind, $('#export-format').value, items, getExportOptions()), count: items.length, kind };
+  if (isUltraMind()) ex.maps = ultramindMaps(items);
+  return ex;
 }
 
 function refreshPreview() {
   const ex = currentExport();
+  if (ex.maps) {
+    const first = ex.maps[0] ? ex.maps[0].content : '(nada que exportar con estos filtros)';
+    const more = ex.maps.length - 1;
+    $('#export-preview').textContent = first.slice(0, 2500) + (first.length > 2500 ? '\n…' : '') +
+      (more > 0 ? `\n… y ${fmtNum(more)} mapa${more === 1 ? '' : 's'} más (uno por libro)` : '');
+    $('#export-count').textContent = `· ${fmtNum(ex.maps.length)} mapa${ex.maps.length === 1 ? '' : 's'}`;
+    $('#btn-do-export').textContent = ex.maps.length > 1 ? `Descargar ${fmtNum(ex.maps.length)} mapas` : 'Descargar archivo';
+    return;
+  }
+  $('#btn-do-export').textContent = 'Descargar archivo';
   $('#export-preview').textContent = ex.content.slice(0, 2500) + (ex.content.length > 2500 ? '\n…' : '');
   $('#export-count').textContent = `· ${fmtNum(ex.count)} ${ex.kind === 'vocab' ? 'palabras' : 'elementos'}`;
 }
 
 function refreshFormatHints() {
   const kind = exportKind(), fmt = $('#export-format').value;
-  $('#format-hint-ultramind').classList.toggle('hidden', fmt !== 'ultramind');
+  const um = isUltraMind();
+  $('#format-hint-ultramind').classList.toggle('hidden', !um);
+  // El mapa lleva solo los subrayados: las opciones de datos no aplican.
+  $('#row-presets').classList.toggle('hidden', um);
+  $('#opt-structure').classList.toggle('hidden', um);
+  $('#opt-highlights').classList.toggle('hidden', um || kind === 'vocab');
   $('#format-hint-vocab').classList.toggle('hidden', !(kind === 'vocab' && fmt === 'csv'));
 }
 
@@ -624,6 +643,7 @@ function renderVocaMaster() {
   vmBlocks = vocamasterBlocks(items, {
     baseForm: $('#vm-base-form').checked,
     includeSent: $('#vm-include-sent').checked,
+    withContext: $('#vm-with-context').checked,
   });
   const c = $('#vm-blocks');
   if (!vmBlocks.length) {
@@ -739,6 +759,7 @@ function wire() {
   $('#btn-vocamaster').onclick = openVocaMaster;
   $('#vm-base-form').onchange = renderVocaMaster;
   $('#vm-include-sent').onchange = renderVocaMaster;
+  $('#vm-with-context').onchange = renderVocaMaster;
   $('#results').addEventListener('click', e => {
     const btn = e.target.closest('[data-word-act]');
     if (!btn) return;
@@ -751,13 +772,28 @@ function wire() {
     $$('.btn-preset').forEach(b => b.classList.remove('active'));
     refreshPreview();
   }));
-  $('#btn-do-export').onclick = () => {
+  $('#btn-do-export').onclick = async () => {
     const ex = currentExport();
+    if (ex.maps) {
+      if (!ex.maps.length) { toast('No hay subrayados que exportar con estos filtros'); return; }
+      // Un archivo por libro. Chrome puede preguntar una vez si permites varias descargas.
+      for (const [i, m] of ex.maps.entries()) {
+        download(new Blob([m.content], { type: 'text/markdown;charset=utf-8' }), m.filename);
+        if (i < ex.maps.length - 1) await new Promise(r => setTimeout(r, 400));
+      }
+      toast(ex.maps.length === 1 ? `Descargado: ${ex.maps[0].filename}` : `✓ Descargados ${fmtNum(ex.maps.length)} mapas, uno por libro`);
+      return;
+    }
     download(new Blob([ex.content], { type: ex.mime }), ex.filename);
     toast(`Descargado: ${ex.filename}`);
   };
   $('#btn-copy-export').onclick = async () => {
-    try { await navigator.clipboard.writeText(currentExport().content); toast('✓ Copiado al portapapeles'); }
+    const ex = currentExport();
+    if (ex.maps && ex.maps.length > 1) {
+      toast('Para copiar un mapa, filtra un solo libro a la izquierda (o usa «Descargar»: un archivo por libro)');
+      return;
+    }
+    try { await navigator.clipboard.writeText(ex.maps ? (ex.maps[0] ? ex.maps[0].content : '') : ex.content); toast('✓ Copiado al portapapeles'); }
     catch { toast('No se pudo copiar; usa “Descargar archivo”'); }
   };
 
