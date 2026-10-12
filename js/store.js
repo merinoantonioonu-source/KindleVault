@@ -57,12 +57,32 @@ function authorsCompatible(a, b) {
 
 export const USEFUL_TYPES = new Set(['highlight', 'note']);
 
+/** Estados que el usuario da a una palabra del vocabulario. */
+export const WORD_STATUSES = ['sent', 'known', 'ignored'];
+
+/**
+ * Clave de estado de una palabra: idioma + forma base. Así «ran» y «running»
+ * comparten estado con «run», y marcar una vale para todas sus búsquedas.
+ */
+export const wordKey = v => `${v.language || '?'}\u0001${norm(v.stem || v.word).toLowerCase()}`;
+
+/** Posición de un subrayado para compararlo con otros del mismo libro. */
+function span(h) {
+  if (h.location_start != null) return { unit: 'loc', a: h.location_start, b: h.location_end ?? h.location_start };
+  if (h.page != null) return { unit: 'page', a: h.page, b: h.page };
+  return null;
+}
+const overlaps = (x, y) => x && y && x.unit === y.unit && x.a <= y.b && y.a <= x.b;
+const compact = s => fold(s).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
 export class Library {
   constructor() {
     this.books = new Map();      // key → {key,title,author,language,cover_url}
     this.highlights = new Map(); // hash → {...,bookKey}
     this.vocab = new Map();      // key → {...,bookKey}
+    this.wordStatus = new Map(); // wordKey → {status: 'sent'|'known'|'ignored'|null, at, source?}
     this.updatedAt = null;
+    this._derivedCache = null;
   }
 
   // ----- serialización -----
@@ -74,6 +94,7 @@ export class Library {
       books: [...this.books.values()],
       highlights: [...this.highlights.values()],
       vocab: [...this.vocab.values()],
+      wordStatus: [...this.wordStatus.entries()].map(([key, v]) => ({ key, ...v })),
     };
   }
   static fromJSON(data) {
@@ -89,7 +110,8 @@ export class Library {
     return Library.fromJSON(await kvGet('library'));
   }
   clear() {
-    this.books.clear(); this.highlights.clear(); this.vocab.clear();
+    this.books.clear(); this.highlights.clear(); this.vocab.clear(); this.wordStatus.clear();
+    this._derivedCache = null;
   }
 
   // ----- libros -----
@@ -155,7 +177,103 @@ export class Library {
       this.vocab.set(v.key, { ...rest, bookKey: book ? book.key : null });
       added++;
     }
+    // Lo que el Kindle ya da por aprendido entra como «Me la sé», pero con la
+    // fecha de la búsqueda: cualquier decisión tuya posterior manda sobre ella.
+    for (const v of entries) {
+      if (!v.mastered) continue;
+      const k = wordKey(v);
+      if (!this.wordStatus.has(k)) this.wordStatus.set(k, { status: 'known', at: v.looked_up_at || '1970-01-01T00:00:00.000Z', source: 'kindle' });
+    }
     return added;
+  }
+
+  // ----- estado de las palabras -----
+  getWordStatus(v) {
+    const s = this.wordStatus.get(wordKey(v));
+    return (s && s.status) || null;
+  }
+
+  /** status null = quitar la marca (se guarda como tal para que la sincronización lo respete). */
+  setWordStatus(key, status) {
+    this.wordStatus.set(key, { status: status || null, at: new Date().toISOString() });
+  }
+
+  // ----- relaciones calculadas: versiones anteriores y notas -----
+  /**
+   * Al ampliar un subrayado, el Kindle añade uno nuevo a My Clippings y deja
+   * también el corto. Se marca como «versión anterior» el subrayado cuyo texto
+   * está dentro de otro que se solapa con él (o que repite exactamente el de
+   * otro del mismo libro). Además, cada nota se une al subrayado en cuya
+   * posición se escribió. Nada de esto se guarda: se recalcula de los datos.
+   */
+  _derived() {
+    const sig = this.highlights.size;
+    if (this._derivedCache && this._derivedCache.sig === sig) return this._derivedCache;
+    const superseded = new Set();
+    const notesByHighlight = new Map(); // hash subrayado → [notas]
+    const noteParent = new Map();       // hash nota → subrayado
+
+    const byBook = new Map();
+    for (const h of this.highlights.values()) {
+      if (!USEFUL_TYPES.has(h.type)) continue;
+      if (!byBook.has(h.bookKey)) byBook.set(h.bookKey, { hl: [], notes: [] });
+      const g = byBook.get(h.bookKey);
+      (h.type === 'note' ? g.notes : g.hl).push({ h, s: span(h), t: compact(h.content) });
+    }
+
+    const older = (x, y) => (x.h.highlighted_at || '') <= (y.h.highlighted_at || '') ? x : y;
+    for (const { hl, notes } of byBook.values()) {
+      // Mismo texto exacto (y no muy corto): duplicado aunque cambie la posición.
+      const sameText = new Map();
+      for (const x of hl) {
+        if (x.t.length < 20) continue;
+        const prev = sameText.get(x.t);
+        if (prev) {
+          const old = older(prev, x);
+          superseded.add(old.h.hash);
+          sameText.set(x.t, old === prev ? x : prev);
+        } else sameText.set(x.t, x);
+      }
+      // Solapados: el corto está dentro del largo.
+      const located = hl.filter(x => x.s && x.t).sort((x, y) =>
+        x.s.unit.localeCompare(y.s.unit) || x.s.a - y.s.a);
+      for (let i = 0; i < located.length; i++) {
+        const x = located[i];
+        for (let j = i + 1; j < located.length; j++) {
+          const y = located[j];
+          if (y.s.unit !== x.s.unit || y.s.a > x.s.b) break;
+          if (x.t === y.t || !overlaps(x.s, y.s)) continue;
+          if (y.t.includes(x.t)) superseded.add(x.h.hash);
+          else if (x.t.includes(y.t)) superseded.add(y.h.hash);
+        }
+      }
+      // Notas: al subrayado que contiene su posición; mejor si acaba justo ahí,
+      // y entre empates, el de fecha más cercana.
+      const alive = hl.filter(x => x.s && !superseded.has(x.h.hash));
+      const time = x => Date.parse(x.h.highlighted_at || '') || 0;
+      for (const n of notes) {
+        if (!n.s) continue;
+        let best = null, bestScore = Infinity;
+        for (const x of alive) {
+          if (x.s.unit !== n.s.unit || n.s.a < x.s.a || n.s.a > x.s.b) continue;
+          const score = (x.s.b === n.s.a ? 0 : 1e12) + Math.abs(time(x) - time(n));
+          if (score < bestScore) { best = x; bestScore = score; }
+        }
+        if (!best) continue;
+        noteParent.set(n.h.hash, best.h);
+        if (!notesByHighlight.has(best.h.hash)) notesByHighlight.set(best.h.hash, []);
+        notesByHighlight.get(best.h.hash).push(n.h);
+      }
+    }
+    this._derivedCache = { sig, superseded, notesByHighlight, noteParent };
+    return this._derivedCache;
+  }
+
+  supersededCount() { return this._derived().superseded.size; }
+
+  /** Tipo con el que se filtra: las versiones anteriores tienen el suyo. */
+  _kind(h, d = this._derived()) {
+    return d.superseded.has(h.hash) ? 'superseded' : h.type;
   }
 
   /** Asigna idioma a los libros que no lo tienen, mirando el texto de sus subrayados. */
@@ -199,22 +317,32 @@ export class Library {
       this.vocab.set(v.key, { ...v, bookKey: v.bookKey ? (remap.get(v.bookKey) || v.bookKey) : null });
       changed = true;
     }
+    // Estados de palabras: gana el cambio más reciente.
+    for (const ws of data.wordStatus || []) {
+      const { key, ...rest } = ws;
+      const local = this.wordStatus.get(key);
+      if (local && (local.at || '') >= (rest.at || '')) continue;
+      this.wordStatus.set(key, rest);
+      changed = true;
+    }
     return changed;
   }
 
   // ----- consultas -----
   stats() {
+    const d = this._derived();
     let useful = 0;
-    for (const h of this.highlights.values()) if (USEFUL_TYPES.has(h.type)) useful++;
+    for (const h of this.highlights.values()) if (USEFUL_TYPES.has(h.type) && !d.superseded.has(h.hash)) useful++;
     return { books: this.books.size, highlights: useful, highlights_total: this.highlights.size, vocab: this.vocab.size };
   }
 
   listBooks() {
+    const d = this._derived();
     const counts = new Map();
     for (const h of this.highlights.values()) {
       const c = counts.get(h.bookKey) || { useful: 0, total: 0, vocab: 0 };
       c.total++;
-      if (USEFUL_TYPES.has(h.type)) c.useful++;
+      if (USEFUL_TYPES.has(h.type) && !d.superseded.has(h.hash)) c.useful++;
       counts.set(h.bookKey, c);
     }
     for (const v of this.vocab.values()) {
@@ -249,15 +377,33 @@ export class Library {
     return true;
   }
 
+  /**
+   * Con subrayados y notas a la vez, cada nota emparejada va dentro de su
+   * subrayado (campo notes) en vez de aparecer suelta. Con solo notas, cada
+   * una lleva el texto de su subrayado en parent.
+   */
   filterHighlights(f = {}) {
+    const d = this._derived();
     const q = f.search ? fold(f.search) : null;
+    const withNotes = !f.types || f.types.has('note');
+    const nested = withNotes && (!f.types || f.types.has('highlight'));
     const out = [];
     for (const h of this.highlights.values()) {
-      if (f.types && !f.types.has(h.type)) continue;
+      const kind = this._kind(h, d);
+      if (f.types && !f.types.has(kind)) continue;
       if (!this._bookMatches(h.bookKey, f)) continue;
-      if (q && !fold(h.content).includes(q)) continue;
+      const parent = h.type === 'note' ? d.noteParent.get(h.hash) || null : null;
+      if (nested && parent) continue;
+      const notes = (withNotes && kind === 'highlight' && d.notesByHighlight.get(h.hash)) || [];
+      if (q && !fold(h.content).includes(q) && !notes.some(n => fold(n.content).includes(q))) continue;
       const b = this.books.get(h.bookKey) || {};
-      out.push({ ...h, title: b.title || '?', author: b.author || null, language: b.language || null });
+      out.push({
+        ...h,
+        superseded: kind === 'superseded',
+        notes: notes.map(n => ({ content: n.content, highlighted_at: n.highlighted_at })),
+        parent: parent ? parent.content : null,
+        title: b.title || '?', author: b.author || null, language: b.language || null,
+      });
     }
     return out.sort((a, b) =>
       a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }) ||
@@ -275,10 +421,19 @@ export class Library {
         if (!f.languages.has(lang)) continue;
       }
       if (q && !fold(v.word).includes(q) && !fold(v.context).includes(q)) continue;
+      const status = this.getWordStatus(v);
+      if (f.statuses && !f.statuses.has(status || 'new')) continue;
       const b = this.books.get(v.bookKey);
-      out.push({ ...v, book_title: (b && b.title) || v.book_title || null });
+      out.push({ ...v, status, wkey: wordKey(v), book_title: (b && b.title) || v.book_title || null });
     }
     return out.sort((a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || ''));
+  }
+
+  /** Cuántas búsquedas hay en cada estado (para el filtro lateral). */
+  vocabStatusCounts() {
+    const c = { new: 0, sent: 0, known: 0, ignored: 0 };
+    for (const v of this.vocab.values()) c[this.getWordStatus(v) || 'new']++;
+    return c;
   }
 
   booksWithoutCover() {

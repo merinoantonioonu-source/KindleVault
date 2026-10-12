@@ -59,7 +59,12 @@
         <label class="filter-item"><input type="checkbox" class="type-filter" value="bookmark" checked><span>Marcadores</span></label>
         <label class="filter-item"><input type="checkbox" class="type-filter" value="empty"><span title="Subrayados sin texto (imágenes, tablas…)">Sin texto</span></label>
         <label class="filter-item"><input type="checkbox" class="type-filter" value="dropped"><span title="Bloqueados por el límite de Amazon">Bloqueados</span></label>
+        <label class="filter-item"><input type="checkbox" class="type-filter" value="superseded"><span title="Cuando amplías un subrayado, el Kindle guarda también la versión corta. Se ocultan para no verlas repetidas.">Versiones anteriores</span><span class="count" id="superseded-count"></span></label>
       </div>
+    </section>
+    <section class="filter-section type-section hidden" id="status-section">
+      <div class="filter-title">Estado</div>
+      <div class="filter-list" id="status-filters"></div>
     </section>
   </aside>
 
@@ -69,6 +74,7 @@
         <input id="search" type="search" placeholder="Buscar en el contenido…">
       </div>
       <div id="result-count" class="result-count"></div>
+      <button id="btn-vocamaster" class="btn btn-primary hidden">Enviar a VocaMaster</button>
       <button id="btn-export" class="btn btn-accent">Exportar</button>
     </div>
     <div id="results" class="results"></div>
@@ -123,11 +129,14 @@
       <div class="row">
         <label class="label" for="export-format">Formato</label>
         <select id="export-format" class="select">
+          <option value="ultramind" id="opt-format-ultramind">UltraMind — mapa mental</option>
           <option value="markdown">Markdown — para gitMind / Obsidian</option>
           <option value="txt">Texto plano</option>
           <option value="csv">CSV (Excel)</option>
           <option value="json">JSON</option>
         </select>
+        <div class="hint hidden" id="format-hint-ultramind">Cada subrayado será una rama del mapa; tus notas, la ubicación y la fecha van en la nota de esa rama. En UltraMind: <strong>Abrir o importar</strong> y arrastra el archivo descargado, o pega ahí el texto copiado y pulsa <strong>Importar el texto</strong>.</div>
+        <div class="hint hidden" id="format-hint-vocab">Para estudiar estas palabras en VocaMaster, usa mejor el botón <strong>Enviar a VocaMaster</strong>: VocaMaster no lee bien este CSV.</div>
       </div>
       <div class="row">
         <label class="label">Preset rápido</label>
@@ -175,6 +184,29 @@
       <button id="btn-copy-export" class="btn">Copiar</button>
       <button id="btn-do-export" class="btn btn-primary">Descargar archivo</button>
     </footer>
+  </div>
+</div>
+
+<!-- Diálogo: enviar a VocaMaster -->
+<div id="vocamaster-dialog" class="dialog-backdrop hidden">
+  <div class="dialog">
+    <header class="dialog-header">
+      <h2>Enviar a VocaMaster</h2>
+      <button class="btn-close" data-close="vocamaster-dialog">×</button>
+    </header>
+    <div class="dialog-body">
+      <ol class="steps">
+        <li>Pulsa <strong>Copiar</strong> en un bloque.</li>
+        <li>En VocaMaster, con el idioma del bloque elegido, pulsa el botón <strong>+</strong> → <strong>Vocabulario</strong> → <strong>✍️ Pegar Texto</strong>, pega y pulsa <strong>🚀 Procesar Texto</strong>. Su IA pondrá la traducción, la definición y un ejemplo.</li>
+        <li>Repite con el siguiente bloque.</li>
+      </ol>
+      <div class="opt-grid vm-options">
+        <label class="check-item"><input type="checkbox" id="vm-base-form" checked> <span>Forma base («run», no «ran»)</span></label>
+        <label class="check-item"><input type="checkbox" id="vm-include-sent"> <span>Incluir las ya enviadas</span></label>
+      </div>
+      <p class="hint">Se usan los filtros de libro e idioma de la izquierda. No van las palabras marcadas como «Me la sé» ni «Ignorar», y cada palabra va una sola vez. Al copiar un bloque, sus palabras quedan marcadas como «Enviada» para no repetirlas la próxima vez.</p>
+      <div id="vm-blocks" class="vm-blocks"></div>
+    </div>
   </div>
 </div>
 

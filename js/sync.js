@@ -2,19 +2,22 @@
 // Regla: leer el archivo, combinarlo con lo local y escribir el resultado.
 // Nunca se borra nada y nunca se sobrescribe un archivo que no se ha podido leer.
 import { kvGet, kvSet } from './store.js';
+import { hash53 } from './parser.js';
 
 export const syncSupported = typeof window !== 'undefined' && 'showSaveFilePicker' in window;
 
 const PICKER_TYPES = [{ description: 'Sincronización de KindleVault', accept: { 'application/json': ['.json'] } }];
 
-function signature(books, highlights, vocab) {
+function signature(books, highlights, vocab, wordStatus = []) {
   let covers = 0, langs = 0;
   for (const b of books) {
     if (b.cover_url && b.cover_url !== '__not_found__') covers += 2;
     else if (b.cover_url) covers += 1;
     if (b.language) langs++;
   }
-  return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}`;
+  // Los estados de palabras cambian sin cambiar ningún recuento: van con su propia huella.
+  const statuses = hash53(wordStatus.map(w => `${w.key}:${w.status || ''}:${w.at}`).sort().join('\n'));
+  return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}|${statuses}`;
 }
 
 export class SyncManager {
@@ -116,8 +119,8 @@ export class SyncManager {
         this.onMerged();
       }
       const local = this.library.toJSON();
-      const remoteSig = remote ? signature(remote.books || [], remote.highlights || [], remote.vocab || []) : null;
-      const localSig = signature(local.books, local.highlights, local.vocab);
+      const remoteSig = remote ? signature(remote.books || [], remote.highlights || [], remote.vocab || [], remote.wordStatus || []) : null;
+      const localSig = signature(local.books, local.highlights, local.vocab, local.wordStatus);
       let wrote = false;
       if (remoteSig !== localSig) {
         const w = await this.handle.createWritable();
