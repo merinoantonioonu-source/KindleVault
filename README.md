@@ -16,7 +16,9 @@ Pulsa **Importar**. Hay tres vías, que se pueden combinar (lo repetido se junta
 
 Los archivos también se pueden arrastrar a cualquier parte de la página. Tras cada importación, **Copiar informe detallado** da un resumen de lo encontrado (útil si algo no cuadra).
 
-**¿Por qué faltan libros?** `My Clippings.txt` solo guarda lo que subrayas en ese mismo Kindle; lo subrayado en el móvil, en el ordenador o en otro Kindle está en la nube de Amazon (vía 3). Las palabras buscadas solo están en el Kindle, que las conserva aunque borres el libro. En **Biblioteca** se ve qué libros están **en el Kindle** y cuáles tienen subrayados pero **no están descargados**.
+**Volver a escanear.** Si has descargado un libro, subrayado o buscado palabras desde la última vez, pulsa **🔄 Volver a escanear el Kindle** (arriba): vuelve a leer el Kindle tal como está ahora (el de la última vez, sin volver a elegirlo si el navegador lo permite) y dice qué libros han llegado o se han ido. Lo que ya estaba no se duplica, y si algo estaba en el libro equivocado se corrige.
+
+**¿Por qué faltan libros o subrayados?** `My Clippings.txt` solo guarda lo que subrayas en ese mismo Kindle; lo subrayado en el móvil, en el ordenador o en otro Kindle está en la nube de Amazon (vía 3). Cuando descargas en el Kindle un libro que subrayaste en otro aparato, el Kindle recibe esos subrayados y los guarda en la carpeta de datos del libro (`.sdr`), **sin su texto** y sin escribirlos en `My Clippings.txt`: KindleVault los cuenta y avisa («El Kindle tiene 37: faltan 32»), y su texto se trae con la vía 3. Las palabras buscadas solo están en el Kindle, que las conserva aunque borres el libro. En **Biblioteca** se ve qué libros están **en el Kindle** y cuáles tienen subrayados pero **no están descargados**.
 
 ## Llevar los subrayados a UltraMind (mapa mental)
 
@@ -86,6 +88,7 @@ js/export.js        Exportación (UltraMind, Markdown, TXT, CSV, JSON) y bloques
 js/notebook.js      Cuadernos exportados de la app Kindle y archivo de la nube de Amazon
 js/amazon.js        Marcador que lee el cuaderno de Kindle en Amazon
 js/bookmeta.js      Título y ASIN de los libros del Kindle (nombre de archivo y cabecera MOBI)
+js/sidecar.js       Recuento de anotaciones de las carpetas .sdr del Kindle
 js/speech.js        Pronunciación con las voces del navegador
 js/translate.js     Traducción con el traductor del navegador
 ```

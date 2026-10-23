@@ -2,7 +2,7 @@ import { Library } from './store.js';
 import { parseClippings, readVocabDb } from './parser.js';
 import { parseNotebookHtml, parseAmazonExport } from './notebook.js';
 import { SyncManager, syncSupported } from './sync.js';
-import { pickKindleFolder, readKindleFiles, folderAccessSupported } from './kindle.js';
+import { pickKindleFolder, readKindleFiles, folderAccessSupported, rescanSavedKindle, hasSavedKindle } from './kindle.js';
 import { findCover } from './covers.js';
 import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks, ultramindMaps } from './export.js';
 import { speak, speechSupported } from './speech.js';
@@ -17,7 +17,8 @@ const state = {
   selectedBooks: new Set(),
   selectedLangs: new Set(),
   selectedTypes: new Set(['highlight', 'note', 'bookmark']),
-  selectedStatuses: new Set(['new', 'sent']),
+  // Se ven todas salvo las que tú ignoras (al enviar a VocaMaster ya se saltan las que te sabes).
+  selectedStatuses: new Set(['new', 'sent', 'known']),
   selectedWords: new Set(), // wordKey de las palabras elegidas con su casilla
   lastChecked: null,
   bookView: 'all',          // Biblioteca: all | device | missing        // índice de la última casilla pulsada (Mayús+clic elige el tramo)
@@ -214,14 +215,22 @@ function buildReport(r, info) {
   out.push(info.vocabCount != null ? `vocab.db: ${info.vocabCount} búsquedas` : 'vocab.db: no encontrado');
   if (r.deviceBooks) {
     out.push(`Libros en el Kindle (${r.deviceBooks.length} archivos):`);
-    for (const f of r.deviceBooks.slice(0, 300)) out.push(`  · ${f.file} → ${f.title || '(sin título)'}${f.asin ? ` [${f.asin}]` : ''}`);
+    for (const f of r.deviceBooks.slice(0, 300)) {
+      out.push(`  · ${f.file} → ${f.title || '(sin título)'}${f.asin ? ` [${f.asin}]` : ''}` +
+        (f.sidecarFiles && f.sidecarFiles.length ? ` · .sdr: ${f.sidecarFiles.join(', ')}` : ' · sin .sdr'));
+    }
   } else if (r.folderName) out.push('No encontré la carpeta documents: no se pudo listar los libros del Kindle.');
+  out.push('', 'Por libro (subrayados aquí / en el Kindle según .sdr · palabras · ¿en el Kindle?):');
+  for (const b of lib.listBooks()) {
+    const dc = b.device_counts;
+    out.push(`  · ${b.title}${b.author ? ` — ${b.author}` : ''}: ${b.hl_count}${dc ? ` / ${dc.highlights} (notas ${dc.notes}, marcadores ${dc.bookmarks})` : ''} · ${b.vocab_count} palabras · ${b.on_device ? 'sí' : 'no'}${b.in_cloud ? ' · en la nube' : ''}`);
+  }
   for (const n of info.notebooks || []) out.push(`Cuaderno: ${n}`);
   for (const n of info.amazon || []) out.push(`Nube de Amazon: ${n}`);
   return out.join('\n');
 }
 
-async function processImport(r) {
+async function processImport(r, { rescan = false } = {}) {
   closeDialog('import-dialog');
   const hasAny = r.clippings || r.vocab || (r.notebooks && r.notebooks.length) || (r.amazon && r.amazon.length) || (r.syncFiles && r.syncFiles.length) || (r.deviceBooks && r.deviceBooks.length);
   if (!hasAny) {
@@ -244,8 +253,14 @@ async function processImport(r) {
     const perBook = new Map();
     for (const h of parsed.items) if (h.type === 'highlight' || h.type === 'note') perBook.set(h.bookTitle, (perBook.get(h.bookTitle) || 0) + 1);
     info.clipBooks = [...perBook.entries()].sort((a, b) => b[1] - a[1]);
-    const { added, dup } = lib.importHighlights(parsed.items);
-    lines.push(`My Clippings.txt: ${fmtNum(added)} subrayados, notas y marcadores nuevos · ${fmtNum(dup)} ya estaban · de ${fmtNum(perBook.size)} libro${perBook.size === 1 ? '' : 's'}.`);
+    const { added, dup, moved } = lib.importHighlights(parsed.items);
+    lines.push(`My Clippings.txt (subrayados, notas y marcadores): ${fmtNum(added)} nuevo${added === 1 ? '' : 's'} · ${fmtNum(dup)} ya estaba${dup === 1 ? '' : 'n'} · de ${fmtNum(perBook.size)} libro${perBook.size === 1 ? '' : 's'}.`);
+    if (moved) lines.push(`Corregidos ${fmtNum(moved)} subrayados que estaban en otro libro de título parecido.`);
+    const dropped = parsed.items.filter(h => h.type === 'dropped');
+    if (dropped.length) {
+      const nb = new Set(dropped.map(h => h.bookTitle)).size;
+      lines.push(`${fmtNum(dropped.length)} subrayados de ${fmtNum(nb)} libro${nb === 1 ? '' : 's'} están bloqueados por el límite de recortes de Amazon: el Kindle no guardó su texto (se ven con el filtro «Bloqueados»).`);
+    }
     if (diag.parsed_failed) { lines.push(`${fmtNum(diag.parsed_failed)} bloques del archivo no se pudieron leer.`); kind = 'warning'; }
   } else if (r.folderName) {
     lines.push('No se encontró My Clippings.txt (subrayados).');
@@ -257,7 +272,7 @@ async function processImport(r) {
       info.vocabCount = entries.length;
       const added = lib.importVocab(entries);
       const books = new Set(entries.map(e => e.book_title).filter(Boolean)).size;
-      lines.push(`Vocabulario: ${fmtNum(added)} palabras nuevas de ${fmtNum(entries.length)} búsquedas, en ${fmtNum(books)} libro${books === 1 ? '' : 's'}.`);
+      lines.push(`Vocabulario: ${fmtNum(added)} palabra${added === 1 ? '' : 's'} nueva${added === 1 ? '' : 's'} de ${fmtNum(entries.length)} búsqueda${entries.length === 1 ? '' : 's'}, en ${fmtNum(books)} libro${books === 1 ? '' : 's'}.`);
     } catch (e) {
       lines.push(`No se pudo leer vocab.db: ${e.message}`);
       kind = 'warning';
@@ -301,7 +316,17 @@ async function processImport(r) {
     const withHl = onDevice.filter(b => b.highlights_count).length;
     const withVocab = onDevice.filter(b => b.vocab_count).length;
     lines.push(`En el Kindle hay ${fmtNum(inv.books)} libro${inv.books === 1 ? '' : 's'}${inv.unresolved ? ` (y ${fmtNum(inv.unresolved)} archivo${inv.unresolved === 1 ? '' : 's'} sin título legible)` : ''}: ${fmtNum(withHl)} con subrayados y ${fmtNum(withVocab)} con palabras buscadas. Todos aparecen en la Biblioteca.`);
-    if (inv.books - withHl > 0) {
+    const titleOf = k => (lib.books.get(k) || {}).title || '?';
+    const list = keys => keys.slice(0, 8).map(k => `«${titleOf(k)}»`).join(', ') + (keys.length > 8 ? ` y ${keys.length - 8} más` : '');
+    if (inv.arrived.length) lines.push(`Libros nuevos en el Kindle desde el último escaneo: ${list(inv.arrived)}.`);
+    if (inv.left.length) lines.push(`Ya no están en el Kindle: ${list(inv.left)} (se conservan aquí).`);
+    // El Kindle sabe cuántas anotaciones tiene cada libro (carpeta .sdr), vengan de donde vengan.
+    const lacking = onDevice.filter(b => b.device_counts && b.device_counts.highlights > b.hl_count);
+    if (lacking.length) {
+      const missing = lacking.reduce((n, b) => n + b.device_counts.highlights - b.hl_count, 0);
+      lines.push(`En ${fmtNum(lacking.length)} libro${lacking.length === 1 ? '' : 's'} el Kindle tiene ${fmtNum(missing)} subrayado${missing === 1 ? '' : 's'} más de los que hay aquí (p. ej. ${list(lacking.map(b => b.key))}). Son subrayados hechos en otro aparato que el Kindle recibió al descargar el libro: los guarda sin su texto y no los escribe en My Clippings.txt. Tráelos con Importar → «Nube de Amazon».`);
+      kind = 'warning';
+    } else if (inv.books - withHl > 0 && !onDevice.some(b => b.device_counts)) {
       lines.push('El Kindle solo guarda en My Clippings.txt lo que subrayas en ese mismo aparato. Lo subrayado en el móvil, el ordenador u otro Kindle está en la nube de Amazon: Importar → «Nube de Amazon».');
     }
   }
@@ -315,8 +340,9 @@ async function processImport(r) {
     ? 'Oculta 1 versión repetida o anterior de un subrayado (filtro «Versiones anteriores»).'
     : `Ocultas ${fmtNum(sup)} versiones repetidas o anteriores de subrayados (filtro «Versiones anteriores»).`);
   lastReport = buildReport(r, info);
+  renderRescanButtons();
   showBanner({
-    title: 'Importación completada', message: lines.join('\n'), failures: diag && diag.failures, kind,
+    title: rescan ? 'Kindle escaneado de nuevo' : 'Importación completada', message: lines.join('\n'), failures: diag && diag.failures, kind,
     actions: [{ label: 'Copiar informe detallado', run: copyReport }],
   });
   sync.schedule();
@@ -326,6 +352,32 @@ async function processImport(r) {
 async function copyReport() {
   try { await navigator.clipboard.writeText(lastReport); toast('✓ Informe copiado: puedes pegarlo en el chat con Claude'); }
   catch { download(new Blob([lastReport], { type: 'text/plain;charset=utf-8' }), 'kindlevault-informe.txt'); }
+}
+
+async function rescanKindle() {
+  hideBanner();
+  toast('Leyendo el Kindle…');
+  let r = await rescanSavedKindle();
+  if (!r) {
+    try {
+      r = await pickKindleFolder();
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      showBanner({
+        title: 'No encuentro el Kindle de la última vez',
+        message: '¿Está conectado por USB? Si ha cambiado de letra de unidad, elígelo de nuevo.',
+        actions: [{ label: 'Elegir el Kindle', run: importFromKindleFolder }],
+      });
+      return;
+    }
+  }
+  processImport(r, { rescan: true });
+}
+
+async function renderRescanButtons() {
+  const show = folderAccessSupported && (!!lib.device || await hasSavedKindle());
+  $('#btn-rescan').classList.toggle('hidden', !show);
+  $('#btn-rescan-dialog').classList.toggle('hidden', !show);
 }
 
 async function importFromKindleFolder() {
@@ -459,7 +511,26 @@ function refreshAll() {
   reload();
 }
 
+/** Recuerda a la vista que hay un filtro puesto (p. ej. tras abrir un libro desde la Biblioteca). */
+function renderActiveFilters() {
+  const el = $('#active-filters');
+  const parts = [];
+  if (state.selectedBooks.size) {
+    const titles = [...state.selectedBooks].map(k => (lib.books.get(k) || {}).title).filter(Boolean);
+    parts.push(titles.length === 1 ? `«${titles[0]}»` : `${fmtNum(titles.length)} libros`);
+  }
+  if (state.selectedLangs.size) parts.push([...state.selectedLangs].map(langName).join(', '));
+  if (!parts.length || state.tab === 'books') { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `Mostrando solo: <strong>${esc(parts.join(' · '))}</strong> <button class="link-btn" id="clear-filters">Ver todo</button>`;
+  $('#clear-filters').onclick = () => {
+    state.selectedBooks.clear(); state.selectedLangs.clear();
+    renderLangFilters(); renderBookFilters(); reload();
+  };
+}
+
 function reload() {
+  renderActiveFilters();
   if (!lib.books.size && !lib.vocab.size) { renderWelcome(); return; }
   if (state.tab === 'books') { renderBooks(); return; }
   if (state.tab === 'highlights') {
@@ -754,6 +825,8 @@ function renderBooks() {
         <div class="b-title">${esc(b.title)}</div>
         <div class="b-author">${esc(b.author || '—')}</div>
         <div class="b-stats">${parts.join(' · ') || 'Sin subrayados'}</div>
+        ${b.device_counts && b.device_counts.highlights > b.hl_count
+          ? `<div class="b-lack" title="El Kindle tiene ${b.device_counts.highlights} subrayados de este libro; los que faltan se hicieron en otro aparato: tráelos con Importar → Nube de Amazon">El Kindle tiene ${b.device_counts.highlights}: faltan ${b.device_counts.highlights - b.hl_count}</div>` : ''}
         ${known ? (b.on_device ? '<div class="b-badge on">En el Kindle</div>' : missing(b) ? '<div class="b-badge off">No descargado</div>' : '') : ''}
       </div></div>`;
   }).join('');
@@ -942,6 +1015,8 @@ function wire() {
 
   $('#btn-import').onclick = () => openDialog('import-dialog');
   $('#btn-pick-kindle').onclick = importFromKindleFolder;
+  $('#btn-rescan').onclick = rescanKindle;
+  $('#btn-rescan-dialog').onclick = rescanKindle;
   if (!folderAccessSupported) {
     $('#btn-pick-kindle').classList.add('hidden');
     $('#btn-pick-files').classList.replace('btn-ghost', 'btn-primary');
@@ -1060,6 +1135,7 @@ async function main() {
   wire();
   setTab('highlights');
   refreshAll();
+  renderRescanButtons();
   await sync.init();
   if (sync.state === 'needs-permission') {
     showBanner({

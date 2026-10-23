@@ -126,7 +126,10 @@ function parseBlock(block) {
     return [null, `Línea 2 sin ubicación ni página detectada: «${meta.slice(0, 120)}»`];
   }
   let content = lines.slice(2).join('\n').trim();
-  if (content && DRM_LIMIT_RE.test(content)) {
+  // Aviso de Amazon en vez del texto: «<Has alcanzado el límite de recortes…>» y variantes.
+  const limitNotice = /^<[^<>]{8,200}>$/.test(content) &&
+    /(clipping|recorte|l[ií]mite|limite|limit|coupure|ausschneid|ritagli|destaque)/i.test(content);
+  if (content && (DRM_LIMIT_RE.test(content) || limitNotice)) {
     content = '[DRM: límite de subrayado alcanzado]';
     type = 'dropped';
   } else if (!content) {

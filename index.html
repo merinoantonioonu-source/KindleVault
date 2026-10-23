@@ -23,6 +23,7 @@
   </div>
   <div class="topbar-right">
     <button id="sync-pill" class="status-pill sync-pill" title="Sincronización">Sincronización</button>
+    <button id="btn-rescan" class="btn btn-ghost hidden" title="Vuelve a leer el Kindle tal como está ahora: libros nuevos, subrayados y palabras">🔄 Volver a escanear el Kindle</button>
     <button id="btn-import" class="btn btn-primary">Importar</button>
   </div>
 </header>
@@ -77,6 +78,7 @@
       <button id="btn-vocamaster" class="btn btn-primary hidden">Enviar a VocaMaster</button>
       <button id="btn-export" class="btn btn-accent">Exportar</button>
     </div>
+    <div id="active-filters" class="active-filters hidden"></div>
     <div id="selection-bar" class="selection-bar hidden"></div>
     <div id="results" class="results"></div>
   </section>
@@ -115,6 +117,7 @@
         </ol>
         <div class="dialog-actions-col">
           <button id="btn-pick-kindle" class="btn btn-primary">Elegir el Kindle</button>
+          <button id="btn-rescan-dialog" class="btn btn-ghost hidden">🔄 Volver a escanear el Kindle de la última vez</button>
         </div>
         <p class="hint" id="import-hint">Sin «Elegir el Kindle» (Firefox, Safari, móvil): usa <strong>Elegir archivos</strong> y escoge <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>system/vocabulary/vocab.db</code> (la carpeta <code>system</code> está oculta: activa «Mostrar elementos ocultos» en el Explorador).</p>
       </section>
