@@ -995,3 +995,64 @@ code {
   width: 100%; margin-top: 8px; font-family: var(--mono); font-size: 12px;
   background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius);
 }
+
+/* ============================================================
+   Elegir palabras con su casilla
+   ============================================================ */
+.v-cb {
+  width: 16px; height: 16px; margin: 0 10px 0 0; vertical-align: middle;
+  accent-color: var(--accent); cursor: pointer;
+}
+.v-card.selected { border-color: var(--accent); background: var(--accent-bg); }
+.selection-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding: 10px 28px; font-size: 13px;
+  border-bottom: 1px solid var(--border); background: var(--surface);
+  color: var(--text-2);
+}
+.selection-bar.active { background: var(--accent-bg); color: var(--accent-text); }
+.selection-bar .muted { font-family: var(--serif); font-style: italic; }
+.btn-sm { padding: 5px 12px; font-size: 12.5px; }
+.vm-scope { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
+.vm-scope input[type=radio] { accent-color: var(--accent); }
+@media (max-width: 760px) {
+  .selection-bar { padding: 8px 12px; }
+}
+
+/* ============================================================
+   Escuchar y traducir
+   ============================================================ */
+.icon-btn {
+  background: none; border: none; cursor: pointer; padding: 0 4px;
+  font-size: 14px; line-height: 1; opacity: 0.55; vertical-align: middle;
+  font-style: normal;
+}
+.icon-btn:hover { opacity: 1; }
+.h-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 12px; }
+.v-translation, .h-translation {
+  margin-top: 10px; padding: 8px 12px; border-radius: var(--radius);
+  background: var(--surface-2); font-size: 14px; color: var(--text-2); line-height: 1.5;
+}
+.tr-sentence { font-family: var(--serif); font-style: italic; margin-top: 2px; }
+.v-translation a, .h-translation a { color: var(--accent); }
+
+/* ============================================================
+   Importar: tres vías · Biblioteca: en el Kindle / no descargados
+   ============================================================ */
+.import-way { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.import-way:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.import-way h3 { font-family: var(--serif); font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+.bookmarklet {
+  display: inline-block; margin: 6px 0 2px; padding: 6px 14px; border-radius: 999px;
+  background: var(--accent); color: var(--surface) !important; text-decoration: none;
+  font-weight: 600; font-size: 13px; cursor: grab;
+}
+kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 3px; }
+.book-views { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+.book-views .hint { margin: 0 0 0 6px; }
+.b-badge {
+  display: inline-block; margin-top: 6px; font-size: 10px; font-weight: 600; padding: 1px 8px;
+  border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid currentColor;
+}
+.b-badge.on { color: var(--success); }
+.b-badge.off { color: var(--accent); }

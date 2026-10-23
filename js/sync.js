@@ -8,16 +8,17 @@ export const syncSupported = typeof window !== 'undefined' && 'showSaveFilePicke
 
 const PICKER_TYPES = [{ description: 'Sincronización de KindleVault', accept: { 'application/json': ['.json'] } }];
 
-function signature(books, highlights, vocab, wordStatus = []) {
-  let covers = 0, langs = 0;
+function signature(books, highlights, vocab, wordStatus = [], device = null) {
+  let covers = 0, langs = 0, asins = 0;
   for (const b of books) {
     if (b.cover_url && b.cover_url !== '__not_found__') covers += 2;
     else if (b.cover_url) covers += 1;
     if (b.language) langs++;
+    if (b.asin) asins++;
   }
   // Los estados de palabras cambian sin cambiar ningún recuento: van con su propia huella.
   const statuses = hash53(wordStatus.map(w => `${w.key}:${w.status || ''}:${w.at}`).sort().join('\n'));
-  return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}|${statuses}`;
+  return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}|${asins}|${statuses}|${device ? device.scannedAt : ''}`;
 }
 
 export class SyncManager {
@@ -119,8 +120,8 @@ export class SyncManager {
         this.onMerged();
       }
       const local = this.library.toJSON();
-      const remoteSig = remote ? signature(remote.books || [], remote.highlights || [], remote.vocab || [], remote.wordStatus || []) : null;
-      const localSig = signature(local.books, local.highlights, local.vocab, local.wordStatus);
+      const remoteSig = remote ? signature(remote.books || [], remote.highlights || [], remote.vocab || [], remote.wordStatus || [], remote.device || null) : null;
+      const localSig = signature(local.books, local.highlights, local.vocab, local.wordStatus, local.device);
       let wrote = false;
       if (remoteSig !== localSig) {
         const w = await this.handle.createWritable();

@@ -118,11 +118,12 @@ export function ultramindMaps(items) {
 export const VOCAMASTER_BLOCK_SIZE = 50;
 const VOCAMASTER_BLOCK_CHARS = 20000; // VocaMaster lee como mucho 30.000 caracteres de una vez
 
-export function vocamasterBlocks(items, { baseForm = true, includeSent = false, withContext = true, blockSize = VOCAMASTER_BLOCK_SIZE } = {}) {
+/** explicit: palabras elegidas a mano con su casilla; van todas, tengan la marca que tengan. */
+export function vocamasterBlocks(items, { baseForm = true, includeSent = false, withContext = true, explicit = false, blockSize = VOCAMASTER_BLOCK_SIZE } = {}) {
   const byLang = new Map();
   for (const v of items) {
-    if (v.status === 'known' || v.status === 'ignored') continue;
-    if (v.status === 'sent' && !includeSent) continue;
+    if (!explicit && (v.status === 'known' || v.status === 'ignored')) continue;
+    if (!explicit && v.status === 'sent' && !includeSent) continue;
     const term = oneLine(baseForm && v.stem ? v.stem : v.word).replace(/\|/g, '/');
     if (!term) continue;
     const lang = v.language || '?';

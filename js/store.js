@@ -81,6 +81,7 @@ export class Library {
     this.highlights = new Map(); // hash → {...,bookKey}
     this.vocab = new Map();      // key → {...,bookKey}
     this.wordStatus = new Map(); // wordKey → {status: 'sent'|'known'|'ignored'|null, at, source?}
+    this.device = null;          // último inventario del Kindle: {scannedAt, keys:[bookKey], files, unresolved}
     this.updatedAt = null;
     this._derivedCache = null;
   }
@@ -95,6 +96,7 @@ export class Library {
       highlights: [...this.highlights.values()],
       vocab: [...this.vocab.values()],
       wordStatus: [...this.wordStatus.entries()].map(([key, v]) => ({ key, ...v })),
+      device: this.device,
     };
   }
   static fromJSON(data) {
@@ -111,6 +113,7 @@ export class Library {
   }
   clear() {
     this.books.clear(); this.highlights.clear(); this.vocab.clear(); this.wordStatus.clear();
+    this.device = null;
     this._derivedCache = null;
   }
 
@@ -119,9 +122,17 @@ export class Library {
     let changed = false;
     if (!target.author && src.author) { target.author = src.author; changed = true; }
     if (!target.language && src.language) { target.language = src.language; changed = true; }
+    if (!target.asin && src.asin) { target.asin = src.asin; changed = true; }
+    if (!target.in_cloud && src.in_cloud) { target.in_cloud = true; changed = true; }
     const rank = u => (!u ? 0 : u === '__not_found__' ? 1 : 2);
     if (rank(src.cover_url) > rank(target.cover_url)) { target.cover_url = src.cover_url; changed = true; }
     return changed;
+  }
+
+  findBookByAsin(asin) {
+    if (!asin) return null;
+    for (const b of this.books.values()) if (b.asin === asin) return b;
+    return null;
   }
 
   findBook(title, author) {
@@ -142,14 +153,14 @@ export class Library {
     return null;
   }
 
-  findOrCreateBook(title, author, language = null) {
-    let b = this.findBook(title, author);
+  findOrCreateBook(title, author, language = null, asin = null) {
+    let b = this.findBookByAsin(asin) || this.findBook(title, author);
     if (b) {
-      this._mergeBookFields(b, { author, language });
+      this._mergeBookFields(b, { author, language, asin });
       return b;
     }
     const key = bookKey(title, author);
-    b = { key, title: norm(title), author: norm(author) || null, language: language || null, cover_url: null };
+    b = { key, title: norm(title), author: norm(author) || null, language: language || null, asin: asin || null, cover_url: null };
     this.books.set(key, b);
     return b;
   }
@@ -171,9 +182,9 @@ export class Library {
     let added = 0;
     for (const v of entries) {
       let book = null;
-      if (v.book_title) book = this.findOrCreateBook(v.book_title, v.book_authors, v.book_lang);
+      if (v.book_title) book = this.findOrCreateBook(v.book_title, v.book_authors, v.book_lang, v.book_asin);
       if (this.vocab.has(v.key)) continue;
-      const { book_authors, book_lang, ...rest } = v;
+      const { book_authors, book_lang, book_asin, ...rest } = v;
       this.vocab.set(v.key, { ...rest, bookKey: book ? book.key : null });
       added++;
     }
@@ -186,6 +197,32 @@ export class Library {
     }
     return added;
   }
+
+  // ----- libros que hay en el Kindle -----
+  /**
+   * Registra el inventario del Kindle: cada libro encontrado se casa con uno
+   * de la biblioteca (por ASIN o por título) o se añade, aunque no tenga
+   * subrayados, para que se vea que está ahí. Los que solo tienen un código
+   * (sin título legible) se cuentan aparte.
+   */
+  applyDeviceInventory(files) {
+    const keys = new Set();
+    const unresolved = new Set();
+    let created = 0;
+    for (const f of files) {
+      let b = this.findBookByAsin(f.asin);
+      if (!b && f.title) {
+        const before = this.books.size;
+        b = this.findOrCreateBook(f.title, f.author, f.language ? f.language.split('-')[0] : null, f.asin);
+        if (this.books.size > before) created++;
+      }
+      if (b) keys.add(b.key); else unresolved.add(f.asin || f.file);
+    }
+    this.device = { scannedAt: new Date().toISOString(), keys: [...keys], files: files.length, unresolved: [...unresolved] };
+    return { books: keys.size, created, unresolved: unresolved.size };
+  }
+
+  isOnDevice(key) { return !!(this.device && this.device.keys.includes(key)); }
 
   // ----- estado de las palabras -----
   getWordStatus(v) {
@@ -222,6 +259,12 @@ export class Library {
     }
 
     const older = (x, y) => (x.h.highlighted_at || '') <= (y.h.highlighted_at || '') ? x : y;
+    // Entre dos copias del mismo subrayado (p. ej. del Kindle y de la nube), se
+    // queda la que tiene más datos: con fecha y con el tramo de posiciones.
+    const poorer = (x, y) => {
+      const rich = z => (z.h.highlighted_at ? 2 : 0) + (z.h.location_end != null ? 1 : 0);
+      return rich(x) !== rich(y) ? (rich(x) < rich(y) ? x : y) : older(x, y);
+    };
     for (const { hl, notes } of byBook.values()) {
       // Mismo texto exacto (y no muy corto): duplicado aunque cambie la posición.
       const sameText = new Map();
@@ -229,7 +272,7 @@ export class Library {
         if (x.t.length < 20) continue;
         const prev = sameText.get(x.t);
         if (prev) {
-          const old = older(prev, x);
+          const old = poorer(prev, x);
           superseded.add(old.h.hash);
           sameText.set(x.t, old === prev ? x : prev);
         } else sameText.set(x.t, x);
@@ -242,8 +285,9 @@ export class Library {
         for (let j = i + 1; j < located.length; j++) {
           const y = located[j];
           if (y.s.unit !== x.s.unit || y.s.a > x.s.b) break;
-          if (x.t === y.t || !overlaps(x.s, y.s)) continue;
-          if (y.t.includes(x.t)) superseded.add(x.h.hash);
+          if (!overlaps(x.s, y.s)) continue;
+          if (x.t === y.t) superseded.add(poorer(x, y).h.hash);
+          else if (y.t.includes(x.t)) superseded.add(x.h.hash);
           else if (x.t.includes(y.t)) superseded.add(y.h.hash);
         }
       }
@@ -251,8 +295,16 @@ export class Library {
       // y entre empates, el de fecha más cercana.
       const alive = hl.filter(x => x.s && !superseded.has(x.h.hash));
       const time = x => Date.parse(x.h.highlighted_at || '') || 0;
+      // La misma nota llegada por dos vías: se queda una.
+      const seenNotes = [];
       for (const n of notes) {
-        if (!n.s) continue;
+        // (Amazon sitúa la nota al principio del subrayado y el Kindle al final: basta el mismo texto en el mismo libro.)
+        const twin = n.t && seenNotes.find(m => m.t === n.t);
+        if (twin) { const p = poorer(twin, n); superseded.add(p.h.hash); if (p === twin) seenNotes[seenNotes.indexOf(twin)] = n; }
+        else seenNotes.push(n);
+      }
+      for (const n of notes) {
+        if (!n.s || superseded.has(n.h.hash)) continue;
         let best = null, bestScore = Infinity;
         for (const x of alive) {
           if (x.s.unit !== n.s.unit || n.s.a < x.s.a || n.s.a > x.s.b) continue;
@@ -317,6 +369,11 @@ export class Library {
       this.vocab.set(v.key, { ...v, bookKey: v.bookKey ? (remap.get(v.bookKey) || v.bookKey) : null });
       changed = true;
     }
+    // Inventario del Kindle: vale el más reciente.
+    if (data.device && (!this.device || (data.device.scannedAt || '') > (this.device.scannedAt || ''))) {
+      this.device = { ...data.device, keys: (data.device.keys || []).map(k => remap.get(k) || k) };
+      changed = true;
+    }
     // Estados de palabras: gana el cambio más reciente.
     for (const ws of data.wordStatus || []) {
       const { key, ...rest } = ws;
@@ -354,7 +411,7 @@ export class Library {
     return [...this.books.values()]
       .map(b => {
         const c = counts.get(b.key) || { useful: 0, total: 0, vocab: 0 };
-        return { ...b, highlights_count: c.useful, total_count: c.total, vocab_count: c.vocab };
+        return { ...b, highlights_count: c.useful, total_count: c.total, vocab_count: c.vocab, on_device: this.isOnDevice(b.key) };
       })
       .sort((a, b) => a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }));
   }
