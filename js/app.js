@@ -1,9 +1,13 @@
 import { Library } from './store.js';
 import { parseClippings, readVocabDb } from './parser.js';
+import { parseNotebookHtml, parseAmazonExport } from './notebook.js';
 import { SyncManager, syncSupported } from './sync.js';
 import { pickKindleFolder, readKindleFiles, folderAccessSupported } from './kindle.js';
 import { findCover } from './covers.js';
 import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks, ultramindMaps } from './export.js';
+import { speak, speechSupported } from './speech.js';
+import { translate, googleTranslateUrl, needsTranslation, builtInTranslator, SAME_LANGUAGE } from './translate.js';
+import { amazonBookmarkletHref } from './amazon.js';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -14,6 +18,9 @@ const state = {
   selectedLangs: new Set(),
   selectedTypes: new Set(['highlight', 'note', 'bookmark']),
   selectedStatuses: new Set(['new', 'sent']),
+  selectedWords: new Set(), // wordKey de las palabras elegidas con su casilla
+  lastChecked: null,
+  bookView: 'all',          // Biblioteca: all | device | missing        // índice de la última casilla pulsada (Mayús+clic elige el tramo)
   search: '',
   results: [],
 };
@@ -192,58 +199,133 @@ async function syncAction(act) {
 // ============================================================
 //  Importar del Kindle
 // ============================================================
+let lastReport = '';
+
+/** Informe de lo que se encontró, para copiarlo y entender una importación rara. */
+function buildReport(r, info) {
+  const out = [`Informe de importación de KindleVault — ${new Date().toLocaleString('es-ES')}`];
+  if (r.folderName) out.push(`Carpeta elegida: ${r.folderName}`, `Contenido: ${(r.rootEntries || []).join(', ') || '(vacía)'}`);
+  else out.push('Archivos elegidos a mano: ' + (r.fileNames || []).join(', '));
+  if (info.diag) {
+    const d = info.diag;
+    out.push(`My Clippings.txt: ${d.size} bytes, ${d.encoding}, ${d.total_blocks} bloques, ${d.parsed_ok} leídos, ${d.parsed_failed} sin leer`);
+  } else out.push('My Clippings.txt: no encontrado');
+  if (info.clipBooks) out.push(`Libros en My Clippings.txt (${info.clipBooks.length}):`, ...info.clipBooks.map(([t, n]) => `  · ${t} — ${n}`));
+  out.push(info.vocabCount != null ? `vocab.db: ${info.vocabCount} búsquedas` : 'vocab.db: no encontrado');
+  if (r.deviceBooks) {
+    out.push(`Libros en el Kindle (${r.deviceBooks.length} archivos):`);
+    for (const f of r.deviceBooks.slice(0, 300)) out.push(`  · ${f.file} → ${f.title || '(sin título)'}${f.asin ? ` [${f.asin}]` : ''}`);
+  } else if (r.folderName) out.push('No encontré la carpeta documents: no se pudo listar los libros del Kindle.');
+  for (const n of info.notebooks || []) out.push(`Cuaderno: ${n}`);
+  for (const n of info.amazon || []) out.push(`Nube de Amazon: ${n}`);
+  return out.join('\n');
+}
+
 async function processImport(r) {
   closeDialog('import-dialog');
-  if (!r.clippings && !r.vocab) {
+  const hasAny = r.clippings || r.vocab || (r.notebooks && r.notebooks.length) || (r.amazon && r.amazon.length) || (r.syncFiles && r.syncFiles.length) || (r.deviceBooks && r.deviceBooks.length);
+  if (!hasAny) {
     showBanner({
       title: 'No he encontrado los archivos del Kindle',
       message: r.folderName
         ? `En «${r.folderName}» no están My Clippings.txt ni vocab.db. Elige la unidad del Kindle completa (por ejemplo D:), no una carpeta de dentro.`
-        : 'Elige My Clippings.txt y/o vocab.db.',
+        : 'Elige My Clippings.txt, vocab.db, un cuaderno exportado (.html) o el archivo de la nube de Amazon (.json).',
       kind: 'error',
     });
     return;
   }
   const lines = [];
+  const info = {};
   let diag = null;
   let kind = 'success';
   if (r.clippings) {
     const parsed = parseClippings(r.clippings.bytes, r.clippings.name);
-    diag = parsed.diagnosis;
+    diag = info.diag = parsed.diagnosis;
+    const perBook = new Map();
+    for (const h of parsed.items) if (h.type === 'highlight' || h.type === 'note') perBook.set(h.bookTitle, (perBook.get(h.bookTitle) || 0) + 1);
+    info.clipBooks = [...perBook.entries()].sort((a, b) => b[1] - a[1]);
     const { added, dup } = lib.importHighlights(parsed.items);
-    lines.push(`Subrayados, notas y marcadores: ${fmtNum(added)} nuevos · ${fmtNum(dup)} ya estaban.`);
-    lines.push(`Archivo: ${fmtNum(diag.total_blocks)} bloques · ${fmtNum(diag.parsed_ok)} leídos${diag.parsed_failed ? ` · ${diag.parsed_failed} sin leer` : ''}.`);
-    if (diag.parsed_failed) kind = 'warning';
-    const sup = lib.supersededCount();
-    if (sup) lines.push(sup === 1
-      ? 'Oculta 1 versión anterior de un subrayado que luego ampliaste (filtro «Versiones anteriores»).'
-      : `Ocultas ${fmtNum(sup)} versiones anteriores de subrayados que luego ampliaste (filtro «Versiones anteriores»).`);
-  } else {
+    lines.push(`My Clippings.txt: ${fmtNum(added)} subrayados, notas y marcadores nuevos · ${fmtNum(dup)} ya estaban · de ${fmtNum(perBook.size)} libro${perBook.size === 1 ? '' : 's'}.`);
+    if (diag.parsed_failed) { lines.push(`${fmtNum(diag.parsed_failed)} bloques del archivo no se pudieron leer.`); kind = 'warning'; }
+  } else if (r.folderName) {
     lines.push('No se encontró My Clippings.txt (subrayados).');
     kind = 'warning';
   }
   if (r.vocab) {
     try {
       const entries = readVocabDb(r.vocab.db.bytes, r.vocab.wal && r.vocab.wal.bytes);
+      info.vocabCount = entries.length;
       const added = lib.importVocab(entries);
-      lines.push(`Vocabulario: ${fmtNum(added)} palabras nuevas de ${fmtNum(entries.length)}.`);
+      const books = new Set(entries.map(e => e.book_title).filter(Boolean)).size;
+      lines.push(`Vocabulario: ${fmtNum(added)} palabras nuevas de ${fmtNum(entries.length)} búsquedas, en ${fmtNum(books)} libro${books === 1 ? '' : 's'}.`);
     } catch (e) {
       lines.push(`No se pudo leer vocab.db: ${e.message}`);
       kind = 'warning';
     }
-  } else {
-    lines.push(r.folderName
-      ? 'No se encontró vocab.db (vocabulario). Si quieres el vocabulario, elige la unidad del Kindle completa.'
-      : 'Sin vocab.db: no se ha importado vocabulario.');
+  } else if (r.folderName) {
+    lines.push('No se encontró vocab.db (vocabulario). Si quieres el vocabulario, elige la unidad del Kindle completa.');
+  }
+  for (const nb of r.notebooks || []) {
+    const res = parseNotebookHtml(new TextDecoder().decode(nb.bytes));
+    info.notebooks = info.notebooks || [];
+    if (!res.items.length) { lines.push(`«${nb.name}»: no parece un cuaderno exportado de Kindle.`); kind = 'warning'; info.notebooks.push(`${nb.name}: no reconocido`); continue; }
+    const { added, dup } = lib.importHighlights(res.items);
+    lines.push(`Cuaderno de «${res.title}»: ${fmtNum(added)} nuevos · ${fmtNum(dup)} ya estaban.`);
+    info.notebooks.push(`${nb.name}: «${res.title}», ${res.items.length} elementos`);
+  }
+  for (const am of r.amazon || []) {
+    try {
+      const res = parseAmazonExport(JSON.parse(new TextDecoder().decode(am.bytes)));
+      const { added, dup } = lib.importHighlights(res.items);
+      for (const b of res.books) {
+        const book = lib.findOrCreateBook(b.title, b.author, null, b.asin);
+        book.in_cloud = true;
+      }
+      lines.push(`Nube de Amazon: ${fmtNum(res.books.length)} libros con subrayados · ${fmtNum(added)} subrayados y notas nuevos · ${fmtNum(dup)} ya estaban.`);
+      if (res.failed) { lines.push(res.failed === 1 ? '1 libro no se pudo leer en Amazon.' : `${fmtNum(res.failed)} libros no se pudieron leer en Amazon.`); kind = 'warning'; }
+      (info.amazon = info.amazon || []).push(`${am.name}: ${res.books.length} libros, ${res.items.length} elementos, ${res.failed} fallidos`);
+    } catch (e) {
+      lines.push(`«${am.name}» no se pudo leer: ${e.message}`);
+      kind = 'warning';
+    }
+  }
+  for (const sf of r.syncFiles || []) {
+    try {
+      const changed = lib.merge(JSON.parse(new TextDecoder().decode(sf.bytes)));
+      lines.push(changed ? `«${sf.name}»: datos combinados.` : `«${sf.name}»: no había nada nuevo.`);
+    } catch (e) { lines.push(`«${sf.name}» no se pudo leer: ${e.message}`); kind = 'warning'; }
+  }
+  if (r.deviceBooks) {
+    const inv = lib.applyDeviceInventory(r.deviceBooks);
+    const onDevice = lib.listBooks().filter(b => b.on_device);
+    const withHl = onDevice.filter(b => b.highlights_count).length;
+    const withVocab = onDevice.filter(b => b.vocab_count).length;
+    lines.push(`En el Kindle hay ${fmtNum(inv.books)} libro${inv.books === 1 ? '' : 's'}${inv.unresolved ? ` (y ${fmtNum(inv.unresolved)} archivo${inv.unresolved === 1 ? '' : 's'} sin título legible)` : ''}: ${fmtNum(withHl)} con subrayados y ${fmtNum(withVocab)} con palabras buscadas. Todos aparecen en la Biblioteca.`);
+    if (inv.books - withHl > 0) {
+      lines.push('El Kindle solo guarda en My Clippings.txt lo que subrayas en ese mismo aparato. Lo subrayado en el móvil, el ordenador u otro Kindle está en la nube de Amazon: Importar → «Nube de Amazon».');
+    }
   }
   lib.guessMissingLanguages();
   await lib.save();
   refreshAll();
   const s = lib.stats();
   lines.push(`Ahora tienes ${fmtNum(s.books)} libros, ${fmtNum(s.highlights)} subrayados con texto y ${fmtNum(s.vocab)} palabras.`);
-  showBanner({ title: 'Importación completada', message: lines.join('\n'), failures: diag && diag.failures, kind });
+  const sup = lib.supersededCount();
+  if (sup) lines.push(sup === 1
+    ? 'Oculta 1 versión repetida o anterior de un subrayado (filtro «Versiones anteriores»).'
+    : `Ocultas ${fmtNum(sup)} versiones repetidas o anteriores de subrayados (filtro «Versiones anteriores»).`);
+  lastReport = buildReport(r, info);
+  showBanner({
+    title: 'Importación completada', message: lines.join('\n'), failures: diag && diag.failures, kind,
+    actions: [{ label: 'Copiar informe detallado', run: copyReport }],
+  });
   sync.schedule();
   fetchCovers();
+}
+
+async function copyReport() {
+  try { await navigator.clipboard.writeText(lastReport); toast('✓ Informe copiado: puedes pegarlo en el chat con Claude'); }
+  catch { download(new Blob([lastReport], { type: 'text/plain;charset=utf-8' }), 'kindlevault-informe.txt'); }
 }
 
 async function importFromKindleFolder() {
@@ -365,6 +447,7 @@ function setTab(tab) {
   $('#btn-vocamaster').classList.toggle('hidden', tab !== 'vocab');
   renderBookFilters();
   reload();
+  renderSelectionBar();
 }
 
 function refreshAll() {
@@ -401,7 +484,7 @@ function renderWelcome() {
     <h2>Tus lecturas, en un solo sitio</h2>
     <p>Importa los subrayados, notas, marcadores y vocabulario de tu Kindle. Todo se guarda en este navegador y, si quieres, en un archivo de sincronización para usarlo en tus otros ordenadores.</p>
     <div class="welcome-actions">
-      <button class="btn btn-primary" id="w-import">Importar del Kindle</button>
+      <button class="btn btn-primary" id="w-import">Importar</button>
       ${canSync ? '<button class="btn btn-ghost" id="w-link">Ya lo uso en otro ordenador: vincular mi archivo</button>'
         : '<button class="btn btn-ghost" id="w-open">Abrir mi archivo de sincronización</button>'}
     </div>
@@ -429,7 +512,7 @@ function renderHighlights(append = false) {
   if (!items.length) { c.innerHTML = '<div class="empty"><p>Sin resultados con los filtros actuales.</p></div>'; return; }
   const start = append ? renderedCount : 0;
   const end = Math.min(items.length, start + RENDER_LIMIT);
-  const html = items.slice(start, end).map(h => {
+  const html = items.slice(start, end).map((h, j) => {
     const meta = [`<strong>${esc(h.title)}</strong>`];
     if (h.author) meta.push(esc(h.author));
     const loc = locLabel(h);
@@ -453,7 +536,8 @@ function renderHighlights(append = false) {
     for (const n of h.notes || []) {
       body += `<div class="h-note"><span class="h-note-label">Tu nota</span>${esc(n.content)}</div>`;
     }
-    return `<article class="h-card ${h.type === 'highlight' ? '' : h.type}${h.superseded ? ' superseded' : ''}">
+    if (h.type === 'highlight' || h.type === 'note') body += langToolsHtml(h.language, 'h');
+    return `<article class="h-card ${h.type === 'highlight' ? '' : h.type}${h.superseded ? ' superseded' : ''}" data-i="${start + j}">
       <div class="h-meta"><div class="h-meta-book">${meta.join('<span class="sep">·</span>')}</div><div class="h-meta-tags">${tags.join('')}</div></div>
       ${body}</article>`;
   }).join('');
@@ -471,22 +555,78 @@ function renderVocab(append = false) {
   if (!items.length) { c.innerHTML = '<div class="empty"><p>Sin vocabulario con los filtros actuales.</p></div>'; return; }
   const start = append ? renderedCount : 0;
   const end = Math.min(items.length, start + RENDER_LIMIT);
-  const html = items.slice(start, end).map(v => `
-    <article class="v-card" data-wkey="${esc(v.wkey)}">
+  const html = items.slice(start, end).map((v, j) => `
+    <article class="v-card${state.selectedWords.has(v.wkey) ? ' selected' : ''}" data-wkey="${esc(v.wkey)}" data-i="${start + j}">
       <div>
-        <span class="v-word">${esc(v.word)}</span>${v.language ? `<span class="v-word-lang">${esc(v.language)}</span>` : ''}
+        <input type="checkbox" class="v-cb" data-i="${start + j}" aria-label="Elegir ${esc(v.word)}" title="Elegir esta palabra (Mayús+clic: elegir un tramo)"${state.selectedWords.has(v.wkey) ? ' checked' : ''}>
+        <span class="v-word">${esc(v.word)}</span>${speechSupported ? '<button class="icon-btn" data-speak="word" title="Escuchar la palabra" aria-label="Escuchar la palabra">🔊</button>' : ''}${v.language ? `<span class="v-word-lang">${esc(v.language)}</span>` : ''}
         ${v.stem && v.stem.toLowerCase() !== v.word.toLowerCase() ? `<div class="v-stem">forma base: ${esc(v.stem)}</div>` : ''}
       </div>
       <div>
-        ${v.context ? `<div class="v-context">${highlightWord(v.context, v.word)}</div>` : ''}
+        ${v.context ? `<div class="v-context">${highlightWord(v.context, v.word)}${speechSupported ? ' <button class="icon-btn" data-speak="context" title="Escuchar la frase" aria-label="Escuchar la frase">🔊</button>' : ''}</div>` : ''}
         ${v.book_title ? `<div class="v-source">de ${esc(v.book_title)}${v.looked_up_at ? ' · ' + esc(fmtWhen(v.looked_up_at)) : ''}</div>` : ''}
-        <div class="v-actions">${wordActionsHtml(v.status)}</div>
+        <div class="v-translation hidden"></div>
+        <div class="v-actions">${wordActionsHtml(v.status)}${needsTranslation(v.language) ? '<button class="link-btn" data-translate>Traducir</button>' : ''}</div>
       </div>
     </article>`).join('');
   if (append) { c.querySelector('.load-more')?.remove(); c.insertAdjacentHTML('beforeend', html); }
-  else { c.innerHTML = html; c.scrollTop = 0; }
+  else { c.innerHTML = html; c.scrollTop = 0; state.lastChecked = null; }
   renderedCount = end;
   if (end < items.length) addLoadMore(c, items.length - end, () => renderVocab(true));
+  renderSelectionBar();
+}
+
+// ----- Elegir palabras con su casilla -----
+function renderSelectionBar() {
+  const bar = $('#selection-bar');
+  if (state.tab !== 'vocab' || !lib.vocab.size) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  const n = state.selectedWords.size;
+  bar.classList.toggle('active', n > 0);
+  bar.innerHTML = n
+    ? `<strong>${fmtNum(n)} palabra${n === 1 ? '' : 's'} elegida${n === 1 ? '' : 's'}</strong>
+       <button class="btn btn-primary btn-sm" data-sel-act="send">Enviar a VocaMaster</button>
+       <button class="link-btn" data-sel-act="known">Me las sé</button>
+       <button class="link-btn" data-sel-act="ignored">Ignorar</button>
+       <button class="link-btn" data-sel-act="all">Elegir todas las de la lista</button>
+       <button class="link-btn" data-sel-act="none">Quitar selección</button>`
+    : `<span class="muted">Marca la casilla de cada palabra para elegir cuáles enviar (Mayús+clic elige un tramo).</span>
+       <button class="link-btn" data-sel-act="all">Elegir todas las de la lista</button>`;
+}
+
+function paintSelection(keys) {
+  const set = keys ? new Set(keys) : null;
+  $$('.v-card').forEach(c => {
+    if (set && !set.has(c.dataset.wkey)) return;
+    const on = state.selectedWords.has(c.dataset.wkey);
+    c.classList.toggle('selected', on);
+    c.querySelector('.v-cb').checked = on;
+  });
+  renderSelectionBar();
+}
+
+function toggleWordCheckbox(cb, shift) {
+  const i = +cb.dataset.i;
+  const on = cb.checked;
+  let from = i, to = i;
+  if (shift && state.lastChecked !== null) { from = Math.min(i, state.lastChecked); to = Math.max(i, state.lastChecked); }
+  const keys = state.results.slice(from, to + 1).map(v => v.wkey);
+  for (const k of keys) on ? state.selectedWords.add(k) : state.selectedWords.delete(k);
+  state.lastChecked = i;
+  paintSelection(keys);
+}
+
+async function selectionAction(act) {
+  if (act === 'all') { state.results.forEach(v => state.selectedWords.add(v.wkey)); paintSelection(); }
+  else if (act === 'none') { state.selectedWords.clear(); state.lastChecked = null; paintSelection(); }
+  else if (act === 'send') openVocaMaster();
+  else if (act === 'known' || act === 'ignored') {
+    const keys = [...state.selectedWords];
+    await setWordStatus(keys, act);
+    state.selectedWords.clear();
+    paintSelection();
+    toast(`✓ ${fmtNum(keys.length)} palabra${keys.length === 1 ? '' : 's'} marcada${keys.length === 1 ? '' : 's'} como «${STATUS_TAGS[act]}»`);
+  }
 }
 
 function wordActionsHtml(status) {
@@ -503,12 +643,56 @@ async function setWordStatus(keys, status) {
   for (const k of keys) lib.setWordStatus(k, status);
   for (const k of keys) {
     $$('.v-card').filter(c => c.dataset.wkey === k).forEach(c => {
-      c.querySelector('.v-actions').innerHTML = wordActionsHtml(status);
+      const tr = c.querySelector('[data-translate]');
+      c.querySelector('.v-actions').innerHTML = wordActionsHtml(status) + (tr ? tr.outerHTML : '');
     });
   }
   renderStatusFilters();
   await lib.save();
   sync.schedule();
+}
+
+// ----- Escuchar y traducir con el navegador -----
+function langToolsHtml(lang, prefix) {
+  const tools = [];
+  if (speechSupported) tools.push('<button class="link-btn" data-speak="content">🔊 Escuchar</button>');
+  if (needsTranslation(lang)) tools.push('<button class="link-btn" data-translate>Traducir</button>');
+  if (!tools.length) return '';
+  return `<div class="${prefix}-translation hidden"></div><div class="${prefix}-actions">${tools.join('')}</div>`;
+}
+
+async function speakFromCard(btn) {
+  const card = btn.closest('[data-i]');
+  const item = state.results[+card.dataset.i];
+  if (!item) return;
+  const what = btn.dataset.speak;
+  const text = what === 'word' ? item.word : what === 'context' ? item.context : item.content;
+  const ok = await speak(text, item.language, { rate: what === 'word' ? 0.85 : 1 });
+  if (!ok) toast(`No hay ninguna voz de ${langName(item.language)} instalada en este equipo: se lee con la voz por defecto. En Windows se añaden en Configuración → Hora e idioma → Voz.`);
+}
+
+async function translateFromCard(btn) {
+  const card = btn.closest('[data-i]');
+  const item = state.results[+card.dataset.i];
+  const box = card.querySelector('.v-translation, .h-translation');
+  if (!item || !box) return;
+  if (!box.classList.contains('hidden') && box.dataset.done) { box.classList.add('hidden'); return; }
+  const isWord = card.classList.contains('v-card');
+  const texts = isWord ? [item.word, item.context].filter(Boolean) : [item.content];
+  box.classList.remove('hidden');
+  box.textContent = 'Traduciendo…';
+  const out = await translate(texts, item.language,
+    p => { box.textContent = `Descargando el traductor del navegador para este idioma… ${Math.round(p * 100)} %`; });
+  box.dataset.done = '1';
+  if (out === SAME_LANGUAGE) { box.textContent = 'Este texto ya está en español.'; return; }
+  if (!out) {
+    const why = builtInTranslator ? 'El traductor de este navegador no sabe este idioma.' : 'Este navegador no trae traductor propio (Chrome de escritorio sí).';
+    box.innerHTML = `${esc(why)} <a href="${esc(googleTranslateUrl(texts.join('\n'), item.language))}" target="_blank" rel="noopener">Abrir en Google Traductor ↗</a>`;
+    return;
+  }
+  box.innerHTML = isWord
+    ? `<strong>${esc(item.word)}</strong> → ${esc(out[0])}${out[1] ? `<div class="tr-sentence">${esc(out[1])}</div>` : ''}`
+    : `<div class="tr-sentence">${esc(out[0])}</div>`;
 }
 
 function highlightWord(context, word) {
@@ -537,9 +721,27 @@ function renderBooks() {
     const q = state.search.toLowerCase();
     books = books.filter(b => b.title.toLowerCase().includes(q) || (b.author || '').toLowerCase().includes(q));
   }
+  // Con un inventario del Kindle se puede ver qué hay en él y qué no.
+  const known = !!lib.device;
+  const missing = b => !b.on_device && (b.highlights_count || b.vocab_count || b.in_cloud);
+  let chips = '';
+  if (known) {
+    const all = books.length, dev = books.filter(b => b.on_device).length, miss = books.filter(missing).length;
+    chips = `<div class="book-views">
+      ${[['all', `Todos (${all})`], ['device', `En el Kindle (${dev})`], ['missing', `No descargados (${miss})`]].map(([v, l]) =>
+        `<button class="btn-preset${state.bookView === v ? ' active' : ''}" data-book-view="${v}">${l}</button>`).join('')}
+      <span class="hint">Inventario del Kindle: ${esc(fmtWhen(lib.device.scannedAt))}</span>
+    </div>`;
+    if (state.bookView === 'device') books = books.filter(b => b.on_device);
+    if (state.bookView === 'missing') books = books.filter(missing);
+  }
   setCount(books.length, 'libro', 'libros');
-  if (!books.length) { c.innerHTML = '<div class="empty"><p>Ningún libro coincide.</p></div>'; return; }
-  c.innerHTML = books.map(b => {
+  if (!books.length) {
+    c.innerHTML = chips + '<div class="empty"><p>Ningún libro coincide.</p></div>';
+    c.querySelectorAll('[data-book-view]').forEach(btn => { btn.onclick = () => { state.bookView = btn.dataset.bookView; renderBooks(); }; });
+    return;
+  }
+  c.innerHTML = chips + books.map(b => {
     const hasCover = b.cover_url && b.cover_url !== '__not_found__';
     const fallback = `<div class="book-cover-fallback"${hasCover ? ' style="display:none"' : ''}><div class="fallback-title">${esc(b.title)}</div></div>`;
     const img = hasCover ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : '';
@@ -552,8 +754,10 @@ function renderBooks() {
         <div class="b-title">${esc(b.title)}</div>
         <div class="b-author">${esc(b.author || '—')}</div>
         <div class="b-stats">${parts.join(' · ') || 'Sin subrayados'}</div>
+        ${known ? (b.on_device ? '<div class="b-badge on">En el Kindle</div>' : missing(b) ? '<div class="b-badge off">No descargado</div>' : '') : ''}
       </div></div>`;
   }).join('');
+  c.querySelectorAll('[data-book-view]').forEach(btn => { btn.onclick = () => { state.bookView = btn.dataset.bookView; renderBooks(); }; });
   $$('.book-card').forEach(card => {
     const open = () => {
       state.selectedBooks = new Set([card.dataset.key]);
@@ -639,11 +843,21 @@ function openExport() {
 let vmBlocks = [];
 
 function renderVocaMaster() {
-  const items = lib.filterVocab({ ...currentFilters(), statuses: null });
+  const chosen = state.selectedWords.size > 0 && document.querySelector('input[name="vm-scope"]:checked').value === 'selected';
+  $('#vm-scope').classList.toggle('hidden', !state.selectedWords.size);
+  $('#vm-scope-selected').textContent = `Solo las ${fmtNum(state.selectedWords.size)} palabra${state.selectedWords.size === 1 ? '' : 's'} que he elegido`;
+  $('#vm-include-sent-row').classList.toggle('hidden', chosen);
+  $('#vm-hint').textContent = chosen
+    ? 'Van exactamente las palabras que has elegido, cada una una sola vez. Al copiar un bloque, sus palabras quedan marcadas como «Enviada».'
+    : 'Se usan los filtros de libro e idioma de la izquierda. No van las palabras marcadas como «Me la sé» ni «Ignorar», y cada palabra va una sola vez. Al copiar un bloque, sus palabras quedan marcadas como «Enviada» para no repetirlas la próxima vez.';
+  const items = chosen
+    ? lib.filterVocab({}).filter(v => state.selectedWords.has(v.wkey))
+    : lib.filterVocab({ ...currentFilters(), statuses: null });
   vmBlocks = vocamasterBlocks(items, {
     baseForm: $('#vm-base-form').checked,
     includeSent: $('#vm-include-sent').checked,
     withContext: $('#vm-with-context').checked,
+    explicit: chosen,
   });
   const c = $('#vm-blocks');
   if (!vmBlocks.length) {
@@ -692,6 +906,8 @@ async function copyVocaMasterBlock(i, btn) {
 }
 
 function openVocaMaster() {
+  const sel = document.querySelector('input[name="vm-scope"][value="selected"]');
+  sel.checked = true;
   renderVocaMaster();
   openDialog('vocamaster-dialog');
 }
@@ -731,6 +947,16 @@ function wire() {
     $('#btn-pick-files').classList.replace('btn-ghost', 'btn-primary');
   }
   $('#btn-pick-files').onclick = () => $('#kindle-files').click();
+  const bm = $('#amazon-bookmarklet');
+  bm.href = amazonBookmarkletHref();
+  bm.addEventListener('click', e => { e.preventDefault(); toast('Arrástralo a la barra de marcadores; luego púlsalo en tu cuaderno de Amazon'); });
+  // Soltar archivos en cualquier parte de la página.
+  document.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  document.addEventListener('drop', async e => {
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    processImport(await readKindleFiles([...e.dataTransfer.files]));
+  });
   $('#kindle-files').addEventListener('change', async e => {
     const files = [...e.target.files];
     e.target.value = '';
@@ -760,6 +986,19 @@ function wire() {
   $('#vm-base-form').onchange = renderVocaMaster;
   $('#vm-include-sent').onchange = renderVocaMaster;
   $('#vm-with-context').onchange = renderVocaMaster;
+  $$('input[name="vm-scope"]').forEach(r => { r.onchange = renderVocaMaster; });
+  $('#selection-bar').addEventListener('click', e => {
+    const btn = e.target.closest('[data-sel-act]');
+    if (btn) selectionAction(btn.dataset.selAct);
+  });
+  $('#results').addEventListener('click', e => {
+    const cb = e.target.closest('.v-cb');
+    if (cb) toggleWordCheckbox(cb, e.shiftKey);
+    const sp = e.target.closest('[data-speak]');
+    if (sp) speakFromCard(sp);
+    const tr = e.target.closest('[data-translate]');
+    if (tr) translateFromCard(tr);
+  });
   $('#results').addEventListener('click', e => {
     const btn = e.target.closest('[data-word-act]');
     if (!btn) return;

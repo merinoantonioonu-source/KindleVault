@@ -198,6 +198,7 @@ export function readVocabDb(dbBytes, walBytes = null) {
       book_title: b ? b.title : null,
       book_authors: b ? b.authors : null,
       book_lang: b ? b.lang : null,
+      book_asin: b && b.asin ? String(b.asin) : null,
       looked_up_at: ts ? new Date(ts).toISOString() : null,
       // En el Vocabulary Builder del Kindle, category 100 = «Aprendida».
       mastered: Number(w.category) === 100,

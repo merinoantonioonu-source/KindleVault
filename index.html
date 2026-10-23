@@ -23,7 +23,7 @@
   </div>
   <div class="topbar-right">
     <button id="sync-pill" class="status-pill sync-pill" title="Sincronización">Sincronización</button>
-    <button id="btn-import" class="btn btn-primary">Importar del Kindle</button>
+    <button id="btn-import" class="btn btn-primary">Importar</button>
   </div>
 </header>
 
@@ -77,11 +77,12 @@
       <button id="btn-vocamaster" class="btn btn-primary hidden">Enviar a VocaMaster</button>
       <button id="btn-export" class="btn btn-accent">Exportar</button>
     </div>
+    <div id="selection-bar" class="selection-bar hidden"></div>
     <div id="results" class="results"></div>
   </section>
 </main>
 
-<!-- Importar del Kindle (alternativa con archivos sueltos) -->
+<!-- Importar con archivos sueltos (Clippings, vocab.db, cuadernos, nube de Amazon) -->
 <input id="kindle-files" type="file" multiple hidden>
 <input id="sync-readonly-file" type="file" hidden accept=".json,application/json">
 
@@ -96,24 +97,55 @@
   </div>
 </div>
 
-<!-- Diálogo: importar del Kindle -->
+<!-- Diálogo: importar -->
 <div id="import-dialog" class="dialog-backdrop hidden">
-  <div class="dialog dialog-narrow">
+  <div class="dialog">
     <header class="dialog-header">
-      <h2>Importar del Kindle</h2>
+      <h2>Importar</h2>
       <button class="btn-close" data-close="import-dialog">×</button>
     </header>
     <div class="dialog-body">
-      <ol class="steps">
-        <li>Conecta el Kindle al ordenador con el cable USB.</li>
-        <li>Pulsa <strong>Elegir el Kindle</strong> y selecciona la unidad del Kindle (por ejemplo <code>D:</code>), no una carpeta de dentro.</li>
-        <li>Si el navegador pregunta, permite que KindleVault <em>vea</em> los archivos. Solo los lee; nunca escribe en el Kindle.</li>
-      </ol>
+      <section class="import-way">
+        <h3>1 · El Kindle conectado por USB</h3>
+        <p>Subrayados hechos <em>en ese Kindle</em>, palabras buscadas y la lista de libros que tiene.</p>
+        <ol class="steps">
+          <li>Conecta el Kindle al ordenador con el cable USB.</li>
+          <li>Pulsa <strong>Elegir el Kindle</strong> y selecciona la unidad del Kindle (por ejemplo <code>D:</code>), no una carpeta de dentro.</li>
+          <li>Si el navegador pregunta, permite que KindleVault <em>vea</em> los archivos. Solo los lee; nunca escribe en el Kindle.</li>
+        </ol>
+        <div class="dialog-actions-col">
+          <button id="btn-pick-kindle" class="btn btn-primary">Elegir el Kindle</button>
+        </div>
+        <p class="hint" id="import-hint">Sin «Elegir el Kindle» (Firefox, Safari, móvil): usa <strong>Elegir archivos</strong> y escoge <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>system/vocabulary/vocab.db</code> (la carpeta <code>system</code> está oculta: activa «Mostrar elementos ocultos» en el Explorador).</p>
+      </section>
+
+      <section class="import-way">
+        <h3>2 · La app Kindle del ordenador (o del móvil)</h3>
+        <p>La app no deja que otras aplicaciones lean sus datos, pero puede <strong>exportar el cuaderno</strong> de cada libro: subrayados y notas, con sus capítulos.</p>
+        <ol class="steps">
+          <li>Abre el libro en la app Kindle y pulsa el icono del <strong>Cuaderno</strong>.</li>
+          <li>Elige <strong>Exportar cuaderno</strong> (en el móvil se envía por correo) y, si pregunta el estilo de cita, <strong>Ninguno</strong>.</li>
+          <li>Guarda el archivo <code>.html</code> y ábrelo aquí con <strong>Elegir archivos</strong> (puedes elegir varios a la vez).</li>
+        </ol>
+      </section>
+
+      <section class="import-way">
+        <h3>3 · La nube de Amazon: todos tus libros, también los no descargados</h3>
+        <p>Amazon guarda los subrayados que haces en cualquier Kindle o app (de los libros comprados en su tienda). Un <strong>marcador</strong> los recoge todos de una vez.</p>
+        <ol class="steps">
+          <li>Arrastra este botón a tu barra de marcadores (si no la ves: <kbd>Ctrl</kbd>+<kbd>Mayús</kbd>+<kbd>B</kbd>):
+            <a id="amazon-bookmarklet" class="bookmarklet" href="#" title="Arrástrame a la barra de marcadores">📚 KindleVault: nube de Amazon</a></li>
+          <li>Abre tu cuaderno de Kindle e inicia sesión: <a href="https://read.amazon.com/notebook" target="_blank" rel="noopener">read.amazon.com/notebook</a> (o <a href="https://leer.amazon.es/notebook" target="_blank" rel="noopener">leer.amazon.es/notebook</a> si compras en amazon.es).</li>
+          <li>Pulsa el marcador. Lee tus libros uno a uno y descarga un archivo <code>kindlevault-amazon-….json</code>.</li>
+          <li>Ábrelo aquí con <strong>Elegir archivos</strong>.</li>
+        </ol>
+        <p class="hint">El marcador solo lee tus páginas de Amazon con tu sesión y no envía nada a ningún sitio. Las búsquedas de vocabulario no están en la nube: solo en el Kindle (<code>vocab.db</code>), que las conserva aunque borres el libro.</p>
+      </section>
+
       <div class="dialog-actions-col">
-        <button id="btn-pick-kindle" class="btn btn-primary">Elegir el Kindle</button>
-        <button id="btn-pick-files" class="btn btn-ghost">Elegir los archivos a mano</button>
+        <button id="btn-pick-files" class="btn btn-ghost">Elegir archivos…</button>
       </div>
-      <p class="hint" id="import-hint">“A mano” sirve en cualquier navegador: elige <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>system/vocabulary/vocab.db</code> (la carpeta <code>system</code> está oculta: activa “Mostrar elementos ocultos” en el Explorador).</p>
+      <p class="hint">También puedes arrastrar los archivos a cualquier parte de esta página.</p>
     </div>
   </div>
 </div>
@@ -200,12 +232,16 @@
         <li>En VocaMaster, con el idioma del bloque elegido, pulsa el botón <strong>+</strong> → <strong>Vocabulario</strong> → <strong>✍️ Pegar Texto</strong>, pega y pulsa <strong>🚀 Procesar Texto</strong>. Su IA pondrá la traducción y la definición, y la frase del libro quedará como ejemplo.</li>
         <li>Repite con el siguiente bloque.</li>
       </ol>
+      <div id="vm-scope" class="vm-scope hidden">
+        <label class="check-item"><input type="radio" name="vm-scope" value="selected" checked> <span id="vm-scope-selected">Solo las palabras que he elegido</span></label>
+        <label class="check-item"><input type="radio" name="vm-scope" value="filtered"> <span>Todas las de la lista (con los filtros de la izquierda)</span></label>
+      </div>
       <div class="opt-grid vm-options">
         <label class="check-item"><input type="checkbox" id="vm-base-form" checked> <span>Forma base («run», no «ran»)</span></label>
-        <label class="check-item"><input type="checkbox" id="vm-include-sent"> <span>Incluir las ya enviadas</span></label>
+        <label class="check-item" id="vm-include-sent-row"><input type="checkbox" id="vm-include-sent"> <span>Incluir las ya enviadas</span></label>
         <label class="check-item"><input type="checkbox" id="vm-with-context" checked> <span>Con la frase del libro como ejemplo</span></label>
       </div>
-      <p class="hint">Se usan los filtros de libro e idioma de la izquierda. No van las palabras marcadas como «Me la sé» ni «Ignorar», y cada palabra va una sola vez. Al copiar un bloque, sus palabras quedan marcadas como «Enviada» para no repetirlas la próxima vez.</p>
+      <p class="hint" id="vm-hint"></p>
       <div id="vm-blocks" class="vm-blocks"></div>
     </div>
   </div>

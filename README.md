@@ -8,11 +8,15 @@ Funciona mejor en **Chrome o Edge de escritorio**, que permiten leer el Kindle d
 
 ## Cómo se usa
 
-1. Conecta el Kindle por USB.
-2. Pulsa **Importar del Kindle → Elegir el Kindle** y selecciona la unidad del Kindle (por ejemplo `D:`).
-3. La app lee `documents/My Clippings.txt` y `system/vocabulary/vocab.db`. Solo lee: nunca escribe en el Kindle.
+Pulsa **Importar**. Hay tres vías, que se pueden combinar (lo repetido se junta solo):
 
-Puedes repetir la importación cuando quieras; lo que ya estaba no se duplica.
+1. **El Kindle por USB.** Conéctalo, pulsa **Elegir el Kindle** y selecciona su unidad (por ejemplo `D:`). La app lee `documents/My Clippings.txt` (lo que subrayas *en ese Kindle*), `system/vocabulary/vocab.db` (las palabras que buscas) y la **lista de libros** que hay en el Kindle. Solo lee: nunca escribe en él.
+2. **La app Kindle del ordenador o del móvil.** No deja que otras aplicaciones lean sus datos, pero puede **exportar el cuaderno** de cada libro (Cuaderno → Exportar cuaderno, estilo de cita «Ninguno»). Ese `.html` se abre con **Elegir archivos**, varios a la vez.
+3. **La nube de Amazon** (todos tus libros con subrayados, también los no descargados): arrastra el botón **📚 KindleVault: nube de Amazon** de la ventana Importar a la barra de marcadores, abre tu cuaderno (`read.amazon.com/notebook` o `leer.amazon.es/notebook`) y púlsalo. Descarga un archivo `kindlevault-amazon-….json` que se abre con **Elegir archivos**. Solo lee tus páginas de Amazon con tu sesión; no envía nada a ningún sitio.
+
+Los archivos también se pueden arrastrar a cualquier parte de la página. Tras cada importación, **Copiar informe detallado** da un resumen de lo encontrado (útil si algo no cuadra).
+
+**¿Por qué faltan libros?** `My Clippings.txt` solo guarda lo que subrayas en ese mismo Kindle; lo subrayado en el móvil, en el ordenador o en otro Kindle está en la nube de Amazon (vía 3). Las palabras buscadas solo están en el Kindle, que las conserva aunque borres el libro. En **Biblioteca** se ve qué libros están **en el Kindle** y cuáles tienen subrayados pero **no están descargados**.
 
 ## Llevar los subrayados a UltraMind (mapa mental)
 
@@ -25,6 +29,12 @@ En UltraMind: **Abrir o importar** y arrastra el archivo, o pega allí el texto 
 En **Vocabulario**, pulsa **Enviar a VocaMaster**. Las palabras salen en bloques de hasta 50, separados por idioma, sin repetir (en su forma base: «run» en vez de «ran», si quieres). Cada línea va como `palabra | frase del libro`. Copia un bloque y pégalo en VocaMaster: botón **+** → **Vocabulario** → **✍️ Pegar Texto** → **🚀 Procesar Texto**. La IA de VocaMaster pone la traducción y la definición del sentido que la palabra tiene en esa frase, y guarda la frase del libro como ejemplo.
 
 Al copiar un bloque, sus palabras quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** de la izquierda decide cuáles se ven. Estas marcas viajan con la sincronización.
+
+Para mandar solo **palabras concretas**, marca su casilla en la lista (Mayús+clic elige un tramo) y pulsa **Enviar a VocaMaster** en la barra que aparece encima.
+
+## Escuchar y traducir
+
+En cada palabra, frase y subrayado de otro idioma hay **🔊** (lo lee la voz del navegador: en Edge, las mismas voces naturales de «Leer en voz alta») y **Traducir**. En Chrome de escritorio la traducción la hace el propio navegador, en el ordenador y sin enviar el texto a ningún sitio (la primera vez descarga el idioma). En otros navegadores ofrece abrir el Traductor de Google.
 
 ## Notas y subrayados ampliados
 
@@ -47,7 +57,7 @@ La sincronización **combina** los datos: nunca borra nada y nunca sobrescribe u
 - En el almacenamiento de tu navegador (IndexedDB), en cada ordenador.
 - En tu archivo de sincronización, si lo usas.
 
-Este repositorio solo contiene el código: tus subrayados no se suben a GitHub ni a ningún servidor. Las únicas peticiones externas son las de las portadas (a Open Library) y las fuentes tipográficas (Google Fonts).
+Este repositorio solo contiene el código: tus subrayados no se suben a GitHub ni a ningún servidor. Las únicas peticiones externas son las de las portadas (a Open Library) y las fuentes tipográficas (Google Fonts); y, solo si tú lo pulsas, abrir el Traductor de Google con el texto a traducir (en los navegadores sin traductor propio).
 
 ## Qué se importa
 
@@ -73,6 +83,11 @@ js/sync.js          Archivo de sincronización
 js/kindle.js        Acceso a la unidad del Kindle
 js/covers.js        Portadas de Open Library
 js/export.js        Exportación (UltraMind, Markdown, TXT, CSV, JSON) y bloques para VocaMaster
+js/notebook.js      Cuadernos exportados de la app Kindle y archivo de la nube de Amazon
+js/amazon.js        Marcador que lee el cuaderno de Kindle en Amazon
+js/bookmeta.js      Título y ASIN de los libros del Kindle (nombre de archivo y cabecera MOBI)
+js/speech.js        Pronunciación con las voces del navegador
+js/translate.js     Traducción con el traductor del navegador
 ```
 
 No necesita compilación: GitHub Pages sirve los archivos tal cual. Para probarla en local, abre un servidor en la carpeta (por ejemplo `python3 -m http.server`) y entra en `http://localhost:8000`.
