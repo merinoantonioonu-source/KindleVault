@@ -39,12 +39,30 @@ const norm = s => (s || '').normalize('NFC').replace(/\s+/g, ' ').trim();
 const fold = s => norm(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 export const bookKey = (title, author) => `${fold(title)}\u0001${fold(author)}`;
 
-/** Título sin paréntesis ni puntuación, para casar vocab.db con My Clippings. */
-function bareTitle(title) {
-  return fold(title)
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+/**
+ * Título sin paréntesis ni puntuación (full) y su parte principal, antes de
+ * un subtítulo tras «:», «;», « - » o «. » (main). Sirve para casar el mismo
+ * libro escrito de formas distintas en My Clippings, vocab.db, los nombres de
+ * archivo y Amazon.
+ */
+function titleParts(title) {
+  const f = fold(title).replace(/\([^)]*\)|\[[^\]]*\]/g, ' ');
+  const bare = s => s.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return { full: bare(f), main: bare(f.split(/\s*[:;]\s*|\s+[-–—]\s+|\.\s+/)[0]) };
+}
+
+/**
+ * ¿Es el mismo libro? Igual título, o uno es el título principal del otro sin
+ * subtítulo: «Sapiens» = «Sapiens: De animales a dioses» = «Sapiens (Spanish
+ * Edition)». Pero «Dune» ≠ «Dune Messiah», «Harry Potter» ≠ «Harry Potter y la
+ * piedra filosofal» y «El señor de los anillos: Las dos torres» ≠ «…: El
+ * retorno del rey»: empezar igual no basta.
+ */
+function sameTitle(a, b) {
+  if (a.full.length < 2 || b.full.length < 2) return false;
+  if (a.full === b.full) return true;
+  const aPlain = a.full === a.main, bPlain = b.full === b.main;
+  return (aPlain && a.full === b.main) || (bPlain && b.full === a.main);
 }
 const authorWords = a => new Set(fold(a).split(/[^\p{L}]+/u).filter(w => w.length > 2));
 function authorsCompatible(a, b) {
@@ -129,32 +147,28 @@ export class Library {
     return changed;
   }
 
-  findBookByAsin(asin) {
+  /** Por ASIN; si además se da el título, tiene que cuadrar (un ASIN mal asignado antes no manda). */
+  findBookByAsin(asin, title = null) {
     if (!asin) return null;
-    for (const b of this.books.values()) if (b.asin === asin) return b;
+    const t = title ? titleParts(title) : null;
+    for (const b of this.books.values()) {
+      if (b.asin === asin && (!t || sameTitle(t, titleParts(b.title)))) return b;
+    }
     return null;
   }
 
   findBook(title, author) {
     const exact = this.books.get(bookKey(title, author));
     if (exact) return exact;
-    // Coincidencia aproximada: un título es prefijo del otro una vez quitados
-    // paréntesis como "(Spanish Edition)". Así "Sapiens" (vocab.db) casa con
-    // "Sapiens: A Brief History of Humankind" (My Clippings), pero
-    // "Inversión: Claves…" no se confunde con "Inversión: Guía…".
-    const t = bareTitle(title);
-    if (t.length < 3) return null;
+    const t = titleParts(title);
     for (const b of this.books.values()) {
-      const bt = bareTitle(b.title);
-      if (bt.length < 3) continue;
-      const prefix = bt === t || bt.startsWith(t + ' ') || t.startsWith(bt + ' ');
-      if (prefix && authorsCompatible(b.author, author)) return b;
+      if (sameTitle(t, titleParts(b.title)) && authorsCompatible(b.author, author)) return b;
     }
     return null;
   }
 
   findOrCreateBook(title, author, language = null, asin = null) {
-    let b = this.findBookByAsin(asin) || this.findBook(title, author);
+    let b = this.findBookByAsin(asin, title) || this.findBook(title, author);
     if (b) {
       this._mergeBookFields(b, { author, language, asin });
       return b;
@@ -166,16 +180,28 @@ export class Library {
   }
 
   // ----- importación desde el Kindle -----
+  /**
+   * Lo que ya estaba se vuelve a colocar en su libro: así, al volver a leer
+   * el Kindle, se corrigen subrayados que una versión anterior metió en otro
+   * libro de título parecido. (bookAt: fecha de esa corrección, para que la
+   * sincronización la lleve a los demás ordenadores.)
+   */
   importHighlights(items) {
-    let added = 0, dup = 0;
+    let added = 0, dup = 0, moved = 0;
     for (const h of items) {
-      if (this.highlights.has(h.hash)) { dup++; continue; }
       const book = this.findOrCreateBook(h.bookTitle, h.author);
+      const old = this.highlights.get(h.hash);
+      if (old) {
+        dup++;
+        if (old.bookKey !== book.key) { old.bookKey = book.key; old.bookAt = new Date().toISOString(); moved++; }
+        continue;
+      }
       const { bookTitle, author, ...rest } = h;
       this.highlights.set(h.hash, { ...rest, bookKey: book.key });
       added++;
     }
-    return { added, dup };
+    if (moved) this._derivedCache = null;
+    return { added, dup, moved };
   }
 
   importVocab(entries) {
@@ -183,7 +209,13 @@ export class Library {
     for (const v of entries) {
       let book = null;
       if (v.book_title) book = this.findOrCreateBook(v.book_title, v.book_authors, v.book_lang, v.book_asin);
-      if (this.vocab.has(v.key)) continue;
+      const old = this.vocab.get(v.key);
+      if (old) {
+        const key = book ? book.key : null;
+        if (old.bookKey !== key) { old.bookKey = key; old.bookAt = new Date().toISOString(); }
+        if (v.mastered !== undefined) old.mastered = v.mastered;
+        continue;
+      }
       const { book_authors, book_lang, book_asin, ...rest } = v;
       this.vocab.set(v.key, { ...rest, bookKey: book ? book.key : null });
       added++;
@@ -208,21 +240,36 @@ export class Library {
   applyDeviceInventory(files) {
     const keys = new Set();
     const unresolved = new Set();
+    const counts = {};
+    const before = new Set(this.device ? this.device.keys : []);
     let created = 0;
     for (const f of files) {
-      let b = this.findBookByAsin(f.asin);
+      let b = this.findBookByAsin(f.asin, f.title);
       if (!b && f.title) {
-        const before = this.books.size;
+        const n = this.books.size;
         b = this.findOrCreateBook(f.title, f.author, f.language ? f.language.split('-')[0] : null, f.asin);
-        if (this.books.size > before) created++;
+        if (this.books.size > n) created++;
       }
-      if (b) keys.add(b.key); else unresolved.add(f.asin || f.file);
+      if (!b) { unresolved.add(f.asin || f.file); continue; }
+      keys.add(b.key);
+      // Anotaciones que el Kindle guarda del libro (en su carpeta .sdr), vengan de donde vengan.
+      if (f.annotations) {
+        const c = counts[b.key] || { highlights: 0, notes: 0, bookmarks: 0 };
+        for (const k of Object.keys(c)) c[k] = Math.max(c[k], f.annotations[k] || 0);
+        counts[b.key] = c;
+      }
     }
-    this.device = { scannedAt: new Date().toISOString(), keys: [...keys], files: files.length, unresolved: [...unresolved] };
-    return { books: keys.size, created, unresolved: unresolved.size };
+    const hadInventory = !!this.device;
+    this.device = { scannedAt: new Date().toISOString(), keys: [...keys], files: files.length, unresolved: [...unresolved], counts };
+    return {
+      books: keys.size, created, unresolved: unresolved.size,
+      arrived: hadInventory ? [...keys].filter(k => !before.has(k)) : [],
+      left: hadInventory ? [...before].filter(k => !keys.has(k)) : [],
+    };
   }
 
   isOnDevice(key) { return !!(this.device && this.device.keys.includes(key)); }
+  deviceCounts(key) { return (this.device && this.device.counts && this.device.counts[key]) || null; }
 
   // ----- estado de las palabras -----
   getWordStatus(v) {
@@ -360,12 +407,26 @@ export class Library {
       }
     }
     for (const h of data.highlights || []) {
-      if (this.highlights.has(h.hash)) continue;
+      const old = this.highlights.get(h.hash);
+      if (old) {
+        // Una corrección de libro hecha en otro ordenador, más reciente, manda.
+        if (h.bookAt && (h.bookAt > (old.bookAt || ''))) {
+          old.bookKey = remap.get(h.bookKey) || h.bookKey; old.bookAt = h.bookAt;
+          this._derivedCache = null; changed = true;
+        }
+        continue;
+      }
       this.highlights.set(h.hash, { ...h, bookKey: remap.get(h.bookKey) || h.bookKey });
       changed = true;
     }
     for (const v of data.vocab || []) {
-      if (this.vocab.has(v.key)) continue;
+      const old = this.vocab.get(v.key);
+      if (old) {
+        if (v.bookAt && (v.bookAt > (old.bookAt || ''))) {
+          old.bookKey = v.bookKey ? (remap.get(v.bookKey) || v.bookKey) : null; old.bookAt = v.bookAt; changed = true;
+        }
+        continue;
+      }
       this.vocab.set(v.key, { ...v, bookKey: v.bookKey ? (remap.get(v.bookKey) || v.bookKey) : null });
       changed = true;
     }
@@ -390,29 +451,33 @@ export class Library {
     const d = this._derived();
     let useful = 0;
     for (const h of this.highlights.values()) if (USEFUL_TYPES.has(h.type) && !d.superseded.has(h.hash)) useful++;
-    return { books: this.books.size, highlights: useful, highlights_total: this.highlights.size, vocab: this.vocab.size };
+    return { books: this.listBooks().length, highlights: useful, highlights_total: this.highlights.size, vocab: this.vocab.size };
   }
 
   listBooks() {
     const d = this._derived();
     const counts = new Map();
     for (const h of this.highlights.values()) {
-      const c = counts.get(h.bookKey) || { useful: 0, total: 0, vocab: 0 };
+      const c = counts.get(h.bookKey) || { useful: 0, total: 0, vocab: 0, hl: 0 };
       c.total++;
       if (USEFUL_TYPES.has(h.type) && !d.superseded.has(h.hash)) c.useful++;
+      if (h.type === 'highlight' && !d.superseded.has(h.hash)) c.hl++;
       counts.set(h.bookKey, c);
     }
     for (const v of this.vocab.values()) {
       if (!v.bookKey) continue;
-      const c = counts.get(v.bookKey) || { useful: 0, total: 0, vocab: 0 };
+      const c = counts.get(v.bookKey) || { useful: 0, total: 0, vocab: 0, hl: 0 };
       c.vocab++;
       counts.set(v.bookKey, c);
     }
     return [...this.books.values()]
       .map(b => {
-        const c = counts.get(b.key) || { useful: 0, total: 0, vocab: 0 };
-        return { ...b, highlights_count: c.useful, total_count: c.total, vocab_count: c.vocab, on_device: this.isOnDevice(b.key) };
+        const c = counts.get(b.key) || { useful: 0, total: 0, vocab: 0, hl: 0 };
+        return { ...b, highlights_count: c.useful, hl_count: c.hl, total_count: c.total, vocab_count: c.vocab, on_device: this.isOnDevice(b.key), device_counts: this.deviceCounts(b.key) };
       })
+      // Un libro sin nada (p. ej. el que quedó vacío al separar dos títulos
+      // parecidos) no se enseña, salvo que esté en el Kindle o en la nube.
+      .filter(b => b.total_count || b.vocab_count || b.on_device || b.in_cloud)
       .sort((a, b) => a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }));
   }
 

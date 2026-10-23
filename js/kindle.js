@@ -1,6 +1,24 @@
 // Acceso a los archivos del Kindle conectado por USB.
 import { kvGet, kvSet } from './store.js';
 import { BOOK_FILE_RE, metaFromFileName, mobiMeta } from './bookmeta.js';
+import { SIDECAR_RE, countSidecar } from './sidecar.js';
+
+/** Suma lo que hay en la carpeta .sdr de un libro (máximo por tipo entre sus archivos). */
+async function readSidecar(sdr) {
+  const total = { highlights: 0, notes: 0, bookmarks: 0 };
+  const files = [];
+  try {
+    for await (const [name, h] of sdr.entries()) {
+      if (h.kind !== 'file' || !SIDECAR_RE.test(name)) continue;
+      const f = await h.getFile();
+      if (f.size > 30 * 1024 * 1024) continue;
+      const c = countSidecar(new Uint8Array(await f.arrayBuffer()));
+      files.push(`${name}${c ? ` (${c.highlights}/${c.notes}/${c.bookmarks})` : ' (?)'}`);
+      if (c) for (const k of Object.keys(total)) total[k] = Math.max(total[k], c[k]);
+    }
+  } catch { /* carpeta ilegible */ }
+  return { annotations: files.length ? total : null, sidecarFiles: files };
+}
 
 export const folderAccessSupported = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -37,6 +55,7 @@ async function listDeviceBooks(dir, path = '', depth = 0, out = []) {
   if (depth > 6) return out;
   let entries = [];
   try { for await (const e of dir.entries()) entries.push(e); } catch { return out; }
+  const sdrDirs = new Map(entries.filter(([n, h]) => h.kind === 'directory' && /\.sdr$/i.test(n)).map(([n, h]) => [n.toLowerCase(), h]));
   for (const [name, h] of entries) {
     if (h.kind === 'directory') {
       if (/\.sdr$/i.test(name) || /^(dictionaries|\.)/i.test(name)) continue;
@@ -50,7 +69,9 @@ async function listDeviceBooks(dir, path = '', depth = 0, out = []) {
           if (head) meta = { ...meta, ...Object.fromEntries(Object.entries(head).filter(([, v]) => v)) };
         } catch { /* archivo ilegible: queda el nombre */ }
       }
-      out.push({ file: `${path}${name}`, ...meta });
+      const sdr = sdrDirs.get(name.replace(/\.[^.]+$/, '').toLowerCase() + '.sdr');
+      const side = sdr ? await readSidecar(sdr) : { annotations: null, sidecarFiles: [] };
+      out.push({ file: `${path}${name}`, ...meta, ...side });
     }
   }
   return out;
@@ -89,20 +110,43 @@ export async function readKindleFolder(dir) {
   };
 }
 
-/** Pide la carpeta del Kindle (o reutiliza la de esta sesión si sigue autorizada). */
+async function savedKindle() {
+  try { return (await kvGet('kindleHandle')) || null; } catch { return null; }
+}
+
+/** ¿Se ha elegido un Kindle antes en este navegador? */
+export async function hasSavedKindle() { return !!(await savedKindle()); }
+
+/** Pide siempre la carpeta del Kindle (empezando por la de la última vez, si se puede). */
 export async function pickKindleFolder() {
-  const saved = await kvGet('kindleHandle');
-  if (saved) {
-    try {
-      if ((await saved.queryPermission({ mode: 'read' })) === 'granted') {
-        const r = await readKindleFolder(saved);
-        if (r.clippings || r.vocab) return r;
-      }
-    } catch { /* Kindle desconectado o letra de unidad distinta */ }
+  const saved = await savedKindle();
+  let dir;
+  try {
+    dir = await window.showDirectoryPicker({ id: 'kindlevault-kindle', mode: 'read', ...(saved ? { startIn: saved } : {}) });
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw e;
+    dir = await window.showDirectoryPicker({ id: 'kindlevault-kindle', mode: 'read' });
   }
-  const dir = await window.showDirectoryPicker({ id: 'kindlevault-kindle', mode: 'read' });
   try { await kvSet('kindleHandle', dir); } catch { /* sin recordar la carpeta: se pedirá otra vez */ }
   return readKindleFolder(dir);
+}
+
+/**
+ * Vuelve a leer, tal como está AHORA, el Kindle elegido la última vez.
+ * Devuelve null si no está conectado, ha cambiado de letra o no hay permiso.
+ */
+export async function rescanSavedKindle() {
+  const saved = await savedKindle();
+  if (!saved) return null;
+  try {
+    let perm = await saved.queryPermission({ mode: 'read' });
+    if (perm !== 'granted') perm = await saved.requestPermission({ mode: 'read' });
+    if (perm !== 'granted') return null;
+    const r = await readKindleFolder(saved);
+    return r.clippings || r.vocab || (r.deviceBooks && r.deviceBooks.length) ? r : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -1056,3 +1056,9 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px s
 }
 .b-badge.on { color: var(--success); }
 .b-badge.off { color: var(--accent); }
+.active-filters {
+  padding: 8px 28px; font-size: 13px; color: var(--warning);
+  background: var(--warning-bg); border-bottom: 1px solid var(--border);
+}
+@media (max-width: 760px) { .active-filters { padding: 8px 12px; } }
+.b-lack { font-size: 11px; color: var(--warning); margin-top: 4px; }

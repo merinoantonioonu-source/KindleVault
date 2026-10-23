@@ -18,7 +18,11 @@ function signature(books, highlights, vocab, wordStatus = [], device = null) {
   }
   // Los estados de palabras cambian sin cambiar ningún recuento: van con su propia huella.
   const statuses = hash53(wordStatus.map(w => `${w.key}:${w.status || ''}:${w.at}`).sort().join('\n'));
-  return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}|${asins}|${statuses}|${device ? device.scannedAt : ''}`;
+  // Las correcciones de libro (bookAt) tampoco cambian recuentos.
+  let moved = '';
+  for (const x of highlights) if (x.bookAt && x.bookAt > moved) moved = x.bookAt;
+  for (const x of vocab) if (x.bookAt && x.bookAt > moved) moved = x.bookAt;
+  return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}|${asins}|${statuses}|${device ? device.scannedAt : ''}|${moved}`;
 }
 
 export class SyncManager {
