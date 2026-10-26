@@ -737,6 +737,33 @@ function renderHighlights(append = false) {
   if (end < items.length) addLoadMore(c, items.length - end, () => renderHighlights(true));
 }
 
+// ----- Dónde y cuándo se buscó una palabra repetida -----
+const fmtDay = iso => new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** Búsquedas de una palabra, de la más reciente a la más antigua: [{ title, at }]. */
+function wordHits(wkey) {
+  const r = lib.repeatStats().get(wkey);
+  if (!r) return [];
+  return [...r.hits]
+    .sort((a, b) => (b.at || '').localeCompare(a.at || ''))
+    .map(h => ({ title: (lib.books.get(h.bookKey) || {}).title || 'Sin libro', at: h.at }));
+}
+
+/** Texto del tooltip: «Buscada 3 veces:» y una línea por búsqueda con fecha y libro. */
+function timesTooltip(wkey) {
+  const hits = wordHits(wkey);
+  return [`Buscada ${hits.length} veces:`, ...hits.map(h => `• ${h.at ? fmtDay(h.at) : 'sin fecha'} — ${h.title}`)].join('\n');
+}
+
+function toggleTimesList(btn) {
+  const list = btn.nextElementSibling;
+  const open = list.classList.contains('hidden');
+  if (open) list.innerHTML = wordHits(btn.dataset.times).map(h =>
+    `<li><span>${esc(h.at ? fmtDay(h.at) : 'sin fecha')}</span> ${esc(h.title)}</li>`).join('');
+  list.classList.toggle('hidden', !open);
+  btn.setAttribute('aria-expanded', String(open));
+}
+
 function renderVocab(append = false) {
   const c = $('#results');
   c.classList.remove('books-grid');
@@ -755,7 +782,8 @@ function renderVocab(append = false) {
       <div>
         ${v.context ? `<div class="v-context">${highlightWord(v.context, v.word)}${speechSupported ? ' <button class="icon-btn" data-speak="context" title="Escuchar la frase" aria-label="Escuchar la frase">🔊</button>' : ''}</div>` : ''}
         ${v.book_title ? `<div class="v-source">de ${esc(v.book_title)}${v.looked_up_at ? ' · ' + esc(fmtWhen(v.looked_up_at)) : ''}</div>` : ''}
-        ${v.times > 1 ? `<div class="v-times" title="Has buscado esta palabra ${v.times} veces${v.timesBooks > 1 ? ` en ${v.timesBooks} libros` : ''}">Buscada ${fmtNum(v.times)} veces${v.timesBooks > 1 ? ` en ${fmtNum(v.timesBooks)} libros` : ''}</div>` : ''}
+        ${v.times > 1 ? `<button class="v-times" data-times="${esc(v.wkey)}" title="${esc(timesTooltip(v.wkey))}" aria-expanded="false">Buscada ${fmtNum(v.times)} veces${v.timesBooks > 1 ? ` en ${fmtNum(v.timesBooks)} libros` : ''} ▾</button>
+        <ul class="v-times-list hidden"></ul>` : ''}
         <div class="v-translation hidden"></div>
         <div class="v-actions">${wordActionsHtml(v.status)}${needsTranslation(v.language) ? '<button class="link-btn" data-translate>Traducir</button>' : ''}</div>
       </div>
@@ -1030,7 +1058,7 @@ function renderHistory() {
       <h3>Las que se te resisten</h3>
       <p class="hint">Palabras que has buscado más de una vez. Pulsa una para ver todas sus frases, o
         <button class="link-btn" id="hist-all-reps">ver las ${fmtNum(lib.repeatedWordCount())}</button> y enviarlas a VocaMaster.</p>
-      <div class="hist-chips">${reps.map(([k, r]) => `<button class="hist-chip" data-wkey="${esc(k)}" title="Buscada ${r.n} veces${r.books.size > 1 ? ` en ${r.books.size} libros` : ''}">
+      <div class="hist-chips">${reps.map(([k, r]) => `<button class="hist-chip" data-wkey="${esc(k)}" title="${esc(timesTooltip(k))}">
         ${esc(r.word)} <span>×${r.n}${r.books.size > 1 ? ` · ${r.books.size} libros` : ''}</span></button>`).join('')}</div>
     </section>` : ''}
 
@@ -1338,6 +1366,8 @@ function wire() {
     if (sp) speakFromCard(sp);
     const tr = e.target.closest('[data-translate]');
     if (tr) translateFromCard(tr);
+    const times = e.target.closest('[data-times]');
+    if (times) toggleTimesList(times);
   });
   $('#results').addEventListener('click', e => {
     const btn = e.target.closest('[data-word-act]');

@@ -603,9 +603,10 @@ export class Library {
     for (const v of this.vocab.values()) {
       if (v.no_lookup) continue;
       const k = wordKey(v);
-      const r = map.get(k) || { n: 0, books: new Set(), word: v.stem || v.word, language: this.vocabLanguage(v), at: '' };
+      const r = map.get(k) || { n: 0, books: new Set(), hits: [], word: v.stem || v.word, language: this.vocabLanguage(v), at: '' };
       r.n++;
       if (v.bookKey) r.books.add(v.bookKey);
+      r.hits.push({ bookKey: v.bookKey || null, at: v.looked_up_at || null });
       if ((v.looked_up_at || '') > r.at) { r.at = v.looked_up_at || ''; r.word = v.stem || v.word; }
       map.set(k, r);
     }
