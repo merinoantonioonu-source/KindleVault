@@ -180,7 +180,21 @@ export function parseClippings(bytes, fileLabel = 'My Clippings.txt') {
 
 /** Lee vocab.db (y su -wal si existe) y devuelve palabras con contexto y libro. */
 export function readVocabDb(dbBytes, walBytes = null) {
+  return readVocabDbDetailed(dbBytes, walBytes).entries;
+}
+
+/**
+ * Como readVocabDb, pero dice además si la base está en modo WAL (el Kindle
+ * guarda primero las búsquedas nuevas en vocab.db-wal y solo de vez en cuando
+ * las pasa a vocab.db) y cuántos cambios se han leído de ese archivo.
+ */
+export function readVocabDbDetailed(dbBytes, walBytes = null) {
   const db = new SQLiteReader(dbBytes, walBytes);
+  const entries = vocabEntries(db);
+  return { entries, walMode: db.walMode, walFrames: db.walFrames, walPages: db.walPages.size };
+}
+
+function vocabEntries(db) {
   if (!db.hasTable('LOOKUPS') || !db.hasTable('WORDS')) {
     throw new Error('vocab.db no tiene las tablas esperadas (LOOKUPS, WORDS).');
   }

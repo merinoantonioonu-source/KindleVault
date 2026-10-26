@@ -92,20 +92,18 @@ export async function readKindleFolder(dir) {
     (await walk(dir, ['system', 'vocabulary', 'vocab.db'])) ||
     (await walk(dir, ['vocabulary', 'vocab.db'])) ||
     (await walk(dir, ['vocab.db']));
-  let vocabWal = null;
-  if (vocabDb) {
-    vocabWal =
-      (await walk(dir, ['system', 'vocabulary', 'vocab.db-wal'])) ||
-      (await walk(dir, ['vocabulary', 'vocab.db-wal'])) ||
-      (await walk(dir, ['vocab.db-wal']));
-  }
+  // Las búsquedas más recientes pueden estar aún en vocab.db-wal (junto a vocab.db).
+  const beside = name =>
+    walk(dir, ['system', 'vocabulary', name]).then(h => h || walk(dir, ['vocabulary', name])).then(h => h || walk(dir, [name]));
+  const vocabWal = vocabDb ? await beside('vocab.db-wal') : null;
+  const vocabShm = vocabDb ? await beside('vocab.db-shm') : null;
   const documents = (await child(dir, 'documents', 'directory')) ||
     (dir.name.toLowerCase() === 'documents' ? dir : null);
   return {
     folderName: dir.name,
     rootEntries: await rootEntries(dir),
     clippings: await readHandle(clippings),
-    vocab: vocabDb ? { db: await readHandle(vocabDb), wal: await readHandle(vocabWal) } : null,
+    vocab: vocabDb ? { db: await readHandle(vocabDb), wal: await readHandle(vocabWal), shm: !!vocabShm } : null,
     deviceBooks: documents ? await listDeviceBooks(documents) : null,
   };
 }
@@ -155,11 +153,12 @@ export async function rescanSavedKindle() {
  * nube de Amazon o de sincronización (.json).
  */
 export async function readKindleFiles(fileList) {
-  const out = { folderName: null, clippings: null, vocab: null, notebooks: [], amazon: [], syncFiles: [], fileNames: [] };
-  let db = null, wal = null;
+  const out = { folderName: null, clippings: null, vocab: null, notebooks: [], amazon: [], syncFiles: [], fileNames: [], walAlone: false };
+  let db = null, wal = null, shm = false;
   for (const f of fileList) {
     const n = f.name.toLowerCase();
     out.fileNames.push(f.name);
+    if (n.endsWith('-shm')) { shm = true; continue; }
     const item = { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) };
     if (n.endsWith('.txt')) out.clippings = item;
     else if (n.endsWith('-wal')) wal = item;
@@ -171,6 +170,7 @@ export async function readKindleFiles(fileList) {
       else if (head.includes('kindlevault-sync')) out.syncFiles.push(item);
     }
   }
-  if (db) out.vocab = { db, wal };
+  if (db) out.vocab = { db, wal, shm };
+  else if (wal) out.walAlone = true;
   return out;
 }

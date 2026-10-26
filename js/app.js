@@ -1,8 +1,8 @@
 import { Library } from './store.js';
-import { parseClippings, readVocabDb } from './parser.js';
+import { parseClippings, readVocabDbDetailed } from './parser.js';
 import { parseNotebookHtml, parseAmazonExport } from './notebook.js';
 import { SyncManager, syncSupported } from './sync.js';
-import { pickKindleFolder, readKindleFiles, folderAccessSupported, rescanSavedKindle, hasSavedKindle } from './kindle.js';
+import { pickKindleFolder, readKindleFiles, readKindleFolder, folderAccessSupported, rescanSavedKindle, hasSavedKindle } from './kindle.js';
 import { findCover } from './covers.js';
 import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks, ultramindMaps } from './export.js';
 import { speak, speechSupported } from './speech.js';
@@ -212,7 +212,14 @@ function buildReport(r, info) {
     out.push(`My Clippings.txt: ${d.size} bytes, ${d.encoding}, ${d.total_blocks} bloques, ${d.parsed_ok} leídos, ${d.parsed_failed} sin leer`);
   } else out.push('My Clippings.txt: no encontrado');
   if (info.clipBooks) out.push(`Libros en My Clippings.txt (${info.clipBooks.length}):`, ...info.clipBooks.map(([t, n]) => `  · ${t} — ${n}`));
-  out.push(info.vocabCount != null ? `vocab.db: ${info.vocabCount} búsquedas` : 'vocab.db: no encontrado');
+  if (r.vocab) {
+    const v = info.vocab || {};
+    out.push(`vocab.db: ${r.vocab.db.bytes.byteLength} bytes${info.vocabCount != null ? `, ${info.vocabCount} búsquedas` : ' (no se pudo leer)'}` +
+      `${v.walMode ? ', modo WAL' : ''} · vocab.db-wal: ${r.vocab.wal ? `${r.vocab.wal.bytes.byteLength} bytes, ${v.walFrames || 0} cambios leídos (${v.walPages || 0} páginas)` : 'no'}` +
+      ` · vocab.db-shm: ${r.vocab.shm ? 'sí' : 'no'}`);
+    if (v.latest && v.latest.length) out.push('Últimas búsquedas en vocab.db:', ...v.latest.map(e => `  · ${e.looked_up_at || '(sin fecha)'} — ${e.word} — ${e.book_title || '(sin libro)'}`));
+    if (v.perBook && v.perBook.length) out.push(`Libros en vocab.db (${v.perBook.length}):`, ...v.perBook.map(([t, n, at]) => `  · ${t} — ${n} búsquedas, la última ${at || '(sin fecha)'}`));
+  } else out.push('vocab.db: no encontrado');
   if (r.deviceBooks) {
     out.push(`Libros en el Kindle (${r.deviceBooks.length} archivos):`);
     for (const f of r.deviceBooks.slice(0, 300)) {
@@ -232,7 +239,7 @@ function buildReport(r, info) {
 
 async function processImport(r, { rescan = false } = {}) {
   closeDialog('import-dialog');
-  const hasAny = r.clippings || r.vocab || (r.notebooks && r.notebooks.length) || (r.amazon && r.amazon.length) || (r.syncFiles && r.syncFiles.length) || (r.deviceBooks && r.deviceBooks.length);
+  const hasAny = r.clippings || r.vocab || r.walAlone || (r.notebooks && r.notebooks.length) || (r.amazon && r.amazon.length) || (r.syncFiles && r.syncFiles.length) || (r.deviceBooks && r.deviceBooks.length);
   if (!hasAny) {
     showBanner({
       title: 'No he encontrado los archivos del Kindle',
@@ -244,6 +251,7 @@ async function processImport(r, { rescan = false } = {}) {
     return;
   }
   const lines = [];
+  if (r.folderName) lines.push(`Leído de «${r.folderName}».`);
   const info = {};
   let diag = null;
   let kind = 'success';
@@ -268,15 +276,36 @@ async function processImport(r, { rescan = false } = {}) {
   }
   if (r.vocab) {
     try {
-      const entries = readVocabDb(r.vocab.db.bytes, r.vocab.wal && r.vocab.wal.bytes);
+      const res = readVocabDbDetailed(r.vocab.db.bytes, r.vocab.wal && r.vocab.wal.bytes);
+      const entries = res.entries;
       info.vocabCount = entries.length;
+      const perBook = new Map();
+      for (const e of entries) {
+        const t = e.book_title || '(sin libro)';
+        const pb = perBook.get(t) || [t, 0, e.looked_up_at];
+        pb[1]++;
+        perBook.set(t, pb);
+      }
+      info.vocab = { ...res, entries: undefined, latest: entries.slice(0, 10), perBook: [...perBook.values()] };
       const added = lib.importVocab(entries);
       const books = new Set(entries.map(e => e.book_title).filter(Boolean)).size;
       lines.push(`Vocabulario: ${fmtNum(added)} palabra${added === 1 ? '' : 's'} nueva${added === 1 ? '' : 's'} de ${fmtNum(entries.length)} búsqueda${entries.length === 1 ? '' : 's'}, en ${fmtNum(books)} libro${books === 1 ? '' : 's'}.`);
+      // Para ver de un vistazo si lo leído está al día.
+      const last = entries[0];
+      if (last) lines.push(`La última palabra buscada que hay en vocab.db es «${last.word}»${last.book_title ? `, en «${last.book_title}»` : ''}${last.looked_up_at ? ` (${fmtWhen(last.looked_up_at)})` : ''}.`);
+      if (res.walFrames) lines.push(`(${fmtNum(res.walFrames)} cambios aún sin volcar leídos de vocab.db-wal.)`);
+      // Elegido a mano sin su -wal: pueden faltar justo las búsquedas más recientes.
+      if (res.walMode && !r.vocab.wal && !r.folderName) {
+        lines.push('Has elegido vocab.db sin vocab.db-wal. El Kindle guarda primero las palabras que buscas en vocab.db-wal y tarda en pasarlas a vocab.db, así que pueden faltar las más recientes. Si en system/vocabulary hay un vocab.db-wal, elige los dos archivos a la vez (o arrastra aquí la carpeta vocabulary entera).');
+        kind = 'warning';
+      }
     } catch (e) {
       lines.push(`No se pudo leer vocab.db: ${e.message}`);
       kind = 'warning';
     }
+  } else if (r.walAlone) {
+    lines.push('Has elegido vocab.db-wal sin vocab.db: elige los dos archivos a la vez (están en system/vocabulary).');
+    kind = 'warning';
   } else if (r.folderName) {
     lines.push('No se encontró vocab.db (vocabulario). Si quieres el vocabulario, elige la unidad del Kindle completa.');
   }
@@ -1030,7 +1059,23 @@ function wire() {
   document.addEventListener('drop', async e => {
     if (!e.dataTransfer || !e.dataTransfer.files.length) return;
     e.preventDefault();
-    processImport(await readKindleFiles([...e.dataTransfer.files]));
+    // Una carpeta soltada (la del Kindle, o system/vocabulary copiada) se lee
+    // como el Kindle, con vocab.db-wal incluido. Hay que pedir los manejadores
+    // antes de esperar nada: después el navegador ya no los da.
+    const files = [...e.dataTransfer.files];
+    const pending = [...e.dataTransfer.items]
+      .filter(i => i.kind === 'file' && typeof i.getAsFileSystemHandle === 'function')
+      .map(i => i.getAsFileSystemHandle().catch(() => null));
+    const handles = (await Promise.all(pending)).filter(Boolean);
+    const dir = handles.find(h => h.kind === 'directory');
+    if (!dir) { processImport(await readKindleFiles(files)); return; }
+    // Carpeta y archivos sueltos a la vez (p. ej. vocabulary y My Clippings.txt).
+    const r = await readKindleFolder(dir);
+    const loose = await readKindleFiles(await Promise.all(handles.filter(h => h.kind === 'file').map(h => h.getFile())));
+    r.clippings = r.clippings || loose.clippings;
+    r.vocab = r.vocab || loose.vocab;
+    for (const k of ['notebooks', 'amazon', 'syncFiles']) r[k] = loose[k];
+    processImport(r);
   });
   $('#kindle-files').addEventListener('change', async e => {
     const files = [...e.target.files];

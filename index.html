@@ -119,7 +119,16 @@
           <button id="btn-pick-kindle" class="btn btn-primary">Elegir el Kindle</button>
           <button id="btn-rescan-dialog" class="btn btn-ghost hidden">🔄 Volver a escanear el Kindle de la última vez</button>
         </div>
-        <p class="hint" id="import-hint">Sin «Elegir el Kindle» (Firefox, Safari, móvil): usa <strong>Elegir archivos</strong> y escoge <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>system/vocabulary/vocab.db</code> (la carpeta <code>system</code> está oculta: activa «Mostrar elementos ocultos» en el Explorador).</p>
+        <p class="hint" id="import-hint">Sin «Elegir el Kindle» (Firefox, Safari, móvil): usa <strong>Elegir archivos</strong> y escoge <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>vocab.db</code> <strong>y</strong> <code>vocab.db-wal</code> (si está) de <code>system/vocabulary</code>, todos a la vez: en <code>vocab.db-wal</code> guarda el Kindle las últimas palabras buscadas. La carpeta <code>system</code> está oculta: activa «Mostrar elementos ocultos» en el Explorador.</p>
+        <details class="hint">
+          <summary>¿Tu Kindle no aparece como unidad (<code>D:</code>, <code>E:</code>…)?</summary>
+          <p>Los Kindle recientes (por ejemplo, el Paperwhite de 2021 en adelante) se conectan como <em>dispositivo</em>: el Explorador los muestra en «Este equipo» como <strong>Kindle → Internal Storage</strong>, pero sin letra, y el navegador no puede abrirlos directamente. Hazlo así:</p>
+          <ol class="steps">
+            <li>En el Explorador, abre <strong>Kindle → Internal Storage → system</strong> y copia la carpeta <code>vocabulary</code> <strong>entera</strong> a tu ordenador (lleva <code>vocab.db</code> y, si existe, <code>vocab.db-wal</code>, con las últimas palabras buscadas). Copia también <code>documents/My Clippings.txt</code>.</li>
+            <li>Arrastra a esta página la carpeta <code>vocabulary</code> y <code>My Clippings.txt</code>.</li>
+          </ol>
+          <p>La copia no se actualiza sola: cuando busques palabras nuevas, vuelve a copiarla. Tras importar, KindleVault dice cuál es la última palabra buscada que ha encontrado, para que veas si está al día.</p>
+        </details>
       </section>
 
       <section class="import-way">
@@ -148,7 +157,7 @@
       <div class="dialog-actions-col">
         <button id="btn-pick-files" class="btn btn-ghost">Elegir archivos…</button>
       </div>
-      <p class="hint">También puedes arrastrar los archivos a cualquier parte de esta página.</p>
+      <p class="hint">También puedes arrastrar los archivos, o una carpeta copiada del Kindle, a cualquier parte de esta página.</p>
     </div>
   </div>
 </div>
