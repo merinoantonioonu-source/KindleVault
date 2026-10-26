@@ -7,7 +7,7 @@ import { findCover } from './covers.js';
 import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks, ultramindMaps } from './export.js';
 import { speak, speechSupported } from './speech.js';
 import { translate, googleTranslateUrl, needsTranslation, builtInTranslator, SAME_LANGUAGE } from './translate.js';
-import { amazonBookmarkletHref } from './amazon.js';
+import { amazonBookmarkletHref, AMAZON_NOTEBOOK_ORIGIN } from './amazon.js';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
@@ -219,6 +219,25 @@ function buildReport(r, info) {
       ` · vocab.db-shm: ${r.vocab.shm ? 'sí' : 'no'}`);
     if (v.latest && v.latest.length) out.push('Últimas búsquedas en vocab.db:', ...v.latest.map(e => `  · ${e.looked_up_at || '(sin fecha)'} — ${e.word} — ${e.book_title || '(sin libro)'}`));
     if (v.perBook && v.perBook.length) out.push(`Libros en vocab.db (${v.perBook.length}):`, ...v.perBook.map(([t, n, at]) => `  · ${t} — ${n} búsquedas, la última ${at || '(sin fecha)'}`));
+    if (r.vocab.db.modified) out.push(`vocab.db modificado por última vez: ${new Date(r.vocab.db.modified).toISOString()}`);
+    if (r.vocab.folder) out.push(`Carpeta de vocab.db: ${r.vocab.folder.join(', ')}`);
+    if (v.header) out.push(`Cabecera: páginas de ${v.header.pageSize} bytes, ${v.header.pages} en el archivo (${v.header.pagesInHeader} según la cabecera), ${v.header.freelistPages} libres, contador de cambios ${v.header.changeCounter}`);
+    if (v.stats) {
+      const st = v.stats;
+      out.push(`Filas: LOOKUPS ${st.lookups}, WORDS ${st.words}, BOOK_INFO ${st.bookInfo} · búsquedas sin su palabra en WORDS: ${st.withoutWord} · sin su libro en BOOK_INFO: ${st.withoutBook}`);
+      out.push('BOOK_INFO:', ...st.books.map(b => `  · ${b.id} · ${b.asin || '-'} · ${b.title}`));
+      out.push('Búsquedas por book_key:', ...[...st.bookKeys.entries()].map(([k, n]) => `  · ${k || '(vacío)'} — ${n}`));
+      for (const [name, sql] of Object.entries(st.tables)) out.push(`Tabla ${name}: ${sql.replace(/\s+/g, ' ')}`);
+    }
+    if (v.orphans) {
+      const o = v.orphans;
+      if (o.error) out.push(`Restos de búsquedas: no se pudo mirar (${o.error})`);
+      else {
+        out.push(`Restos de búsquedas fuera de las tablas (borradas o no alcanzadas): ${o.total}`);
+        out.push(...o.perBook.map(([t, n]) => `  · ${t} — ${n}`));
+        out.push(...o.sample.map(x => `  · ej.: ${x.at || '(sin fecha)'} — ${x.word} — ${x.book} — «${x.usage || ''}»`));
+      }
+    }
   } else out.push('vocab.db: no encontrado');
   if (r.deviceBooks) {
     out.push(`Libros en el Kindle (${r.deviceBooks.length} archivos):`);
@@ -274,6 +293,9 @@ async function processImport(r, { rescan = false } = {}) {
     lines.push('No se encontró My Clippings.txt (subrayados).');
     kind = 'warning';
   }
+  // Primero los libros del Kindle, para casar por ASIN las palabras cuyo libro
+  // no tiene ficha en vocab.db.
+  const inv = r.deviceBooks ? lib.applyDeviceInventory(r.deviceBooks) : null;
   if (r.vocab) {
     try {
       const res = readVocabDbDetailed(r.vocab.db.bytes, r.vocab.wal && r.vocab.wal.bytes);
@@ -281,18 +303,22 @@ async function processImport(r, { rescan = false } = {}) {
       info.vocabCount = entries.length;
       const perBook = new Map();
       for (const e of entries) {
-        const t = e.book_title || '(sin libro)';
+        const t = e.book_title || (e.book_asin && lib.findBookByAsin(e.book_asin) || {}).title || '(sin libro)';
         const pb = perBook.get(t) || [t, 0, e.looked_up_at];
         pb[1]++;
         perBook.set(t, pb);
       }
       info.vocab = { ...res, entries: undefined, latest: entries.slice(0, 10), perBook: [...perBook.values()] };
       const added = lib.importVocab(entries);
-      const books = new Set(entries.map(e => e.book_title).filter(Boolean)).size;
+      const books = [...perBook.keys()].filter(t => t !== '(sin libro)').length;
       lines.push(`Vocabulario: ${fmtNum(added)} palabra${added === 1 ? '' : 's'} nueva${added === 1 ? '' : 's'} de ${fmtNum(entries.length)} búsqueda${entries.length === 1 ? '' : 's'}, en ${fmtNum(books)} libro${books === 1 ? '' : 's'}.`);
       // Para ver de un vistazo si lo leído está al día.
       const last = entries[0];
-      if (last) lines.push(`La última palabra buscada que hay en vocab.db es «${last.word}»${last.book_title ? `, en «${last.book_title}»` : ''}${last.looked_up_at ? ` (${fmtWhen(last.looked_up_at)})` : ''}.`);
+      if (last) {
+        const lastBook = last.book_title || (last.book_asin && (lib.findBookByAsin(last.book_asin) || {}).title);
+        lines.push(`La última palabra buscada que hay en vocab.db es «${last.word}»${lastBook ? `, en «${lastBook}»` : ''}${last.looked_up_at ? ` (${fmtWhen(last.looked_up_at)})` : ''}.` +
+          (r.vocab.db.modified ? ` El Kindle guardó vocab.db por última vez: ${fmtWhen(new Date(r.vocab.db.modified).toISOString())}.` : ''));
+      }
       if (res.walFrames) lines.push(`(${fmtNum(res.walFrames)} cambios aún sin volcar leídos de vocab.db-wal.)`);
       // Elegido a mano sin su -wal: pueden faltar justo las búsquedas más recientes.
       if (res.walMode && !r.vocab.wal && !r.folderName) {
@@ -339,8 +365,7 @@ async function processImport(r, { rescan = false } = {}) {
       lines.push(changed ? `«${sf.name}»: datos combinados.` : `«${sf.name}»: no había nada nuevo.`);
     } catch (e) { lines.push(`«${sf.name}» no se pudo leer: ${e.message}`); kind = 'warning'; }
   }
-  if (r.deviceBooks) {
-    const inv = lib.applyDeviceInventory(r.deviceBooks);
+  if (inv) {
     const onDevice = lib.listBooks().filter(b => b.on_device);
     const withHl = onDevice.filter(b => b.highlights_count).length;
     const withVocab = onDevice.filter(b => b.vocab_count).length;
@@ -1052,7 +1077,19 @@ function wire() {
   }
   $('#btn-pick-files').onclick = () => $('#kindle-files').click();
   const bm = $('#amazon-bookmarklet');
-  bm.href = amazonBookmarkletHref();
+  bm.href = amazonBookmarkletHref(location.origin + location.pathname);
+  // Datos que el marcador pasa directamente desde el cuaderno de Amazon.
+  const received = new Set();
+  window.addEventListener('message', e => {
+    if (!AMAZON_NOTEBOOK_ORIGIN.test(e.origin) || !e.data || e.data.type !== 'kindlevault-amazon') return;
+    const data = e.data.data;
+    if (!data || data.format !== 'kindlevault-amazon' || !Array.isArray(data.books)) return;
+    try { e.source.postMessage({ type: 'kindlevault-amazon-ok' }, e.origin); } catch { /* la pestaña de Amazon ya no está */ }
+    if (received.has(data.exportedAt)) return; // el marcador lo reenvía hasta recibir respuesta
+    received.add(data.exportedAt);
+    const bytes = new TextEncoder().encode(JSON.stringify(data));
+    processImport({ folderName: null, clippings: null, vocab: null, notebooks: [], syncFiles: [], fileNames: [`nube de Amazon (${e.origin})`], amazon: [{ name: 'nube de Amazon', bytes }] });
+  });
   bm.addEventListener('click', e => { e.preventDefault(); toast('Arrástralo a la barra de marcadores; luego púlsalo en tu cuaderno de Amazon'); });
   // Soltar archivos en cualquier parte de la página.
   document.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });

@@ -209,6 +209,8 @@ export class Library {
     for (const v of entries) {
       let book = null;
       if (v.book_title) book = this.findOrCreateBook(v.book_title, v.book_authors, v.book_lang, v.book_asin);
+      // Sin ficha del libro en vocab.db: por su ASIN, si es un libro conocido (p. ej. del Kindle).
+      else if (v.book_asin) book = this.findBookByAsin(v.book_asin);
       const old = this.vocab.get(v.key);
       if (old) {
         const key = book ? book.key : null;

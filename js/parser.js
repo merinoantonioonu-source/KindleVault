@@ -184,45 +184,96 @@ export function readVocabDb(dbBytes, walBytes = null) {
 }
 
 /**
- * Como readVocabDb, pero dice además si la base está en modo WAL (el Kindle
- * guarda primero las búsquedas nuevas en vocab.db-wal y solo de vez en cuando
- * las pasa a vocab.db) y cuántos cambios se han leído de ese archivo.
+ * Como readVocabDb, pero devuelve también lo necesario para el informe: modo
+ * WAL (el Kindle guarda primero las búsquedas nuevas en vocab.db-wal), filas
+ * de cada tabla, búsquedas sin su palabra o sin su libro en las otras tablas,
+ * y restos de búsquedas que no cuelgan de ninguna tabla.
  */
 export function readVocabDbDetailed(dbBytes, walBytes = null) {
   const db = new SQLiteReader(dbBytes, walBytes);
-  const entries = vocabEntries(db);
-  return { entries, walMode: db.walMode, walFrames: db.walFrames, walPages: db.walPages.size };
+  const { entries, stats } = vocabEntries(db);
+  let orphans = null;
+  try { orphans = orphanLookups(db, stats.bookTitles); } catch (e) { orphans = { error: e.message }; }
+  return { entries, stats, orphans, header: db.info(), walMode: db.walMode, walFrames: db.walFrames, walPages: db.walPages.size };
 }
 
+const ASIN_RE = /^(B0[A-Z0-9]{8}|\d{9}[\dX])$/;
+/** «en:lumbering» → { lang: 'en', word: 'lumbering' } */
+function splitKey(key) {
+  const k = String(key || '');
+  const i = k.indexOf(':');
+  return i > 0 ? { lang: k.slice(0, i), word: k.slice(i + 1) } : { lang: null, word: k };
+}
+/** ASIN al principio de la clave del libro («B00SDMPAVG:…»), si lo hay. */
+const asinOfBookKey = key => {
+  const head = String(key || '').split(/[:_]/)[0].toUpperCase();
+  return ASIN_RE.test(head) ? head : null;
+};
+
 function vocabEntries(db) {
-  if (!db.hasTable('LOOKUPS') || !db.hasTable('WORDS')) {
-    throw new Error('vocab.db no tiene las tablas esperadas (LOOKUPS, WORDS).');
-  }
-  const words = new Map(db.rows('WORDS').map(w => [w.id, w]));
-  const books = db.hasTable('BOOK_INFO') ? new Map(db.rows('BOOK_INFO').map(b => [b.id, b])) : new Map();
+  if (!db.hasTable('LOOKUPS')) throw new Error('vocab.db no tiene la tabla LOOKUPS.');
+  const wordRows = db.hasTable('WORDS') ? db.rows('WORDS') : [];
+  const words = new Map(wordRows.map(w => [w.id, w]));
+  const bookRows = db.hasTable('BOOK_INFO') ? db.rows('BOOK_INFO') : [];
+  const books = new Map(bookRows.map(b => [b.id, b]));
+  const lookups = db.rows('LOOKUPS');
+  const stats = {
+    tables: Object.fromEntries(Object.values(db.schema()).map(t => [t.name, t.sql])),
+    lookups: lookups.length, words: wordRows.length, bookInfo: bookRows.length,
+    withoutWord: 0, withoutBook: 0, bookKeys: new Map(),
+    books: bookRows.map(b => ({ id: b.id, asin: b.asin, title: b.title })),
+    bookTitles: new Map(bookRows.map(b => [b.id, b.title])),
+  };
   const entries = [];
-  for (const l of db.rows('LOOKUPS')) {
-    const w = words.get(l.word_key);
-    if (!w || !w.word) continue;
+  for (const l of lookups) {
+    const bk = String(l.book_key || '');
+    stats.bookKeys.set(bk, (stats.bookKeys.get(bk) || 0) + 1);
+    // Si falta la fila de WORDS, la palabra sale de su clave («en:palabra»):
+    // la búsqueda está, y el Kindle la enseña igual.
+    const w = words.get(l.word_key) || null;
+    const fromKey = splitKey(l.word_key);
+    const word = (w && (w.word || w.stem)) || fromKey.word;
+    if (!w) stats.withoutWord++;
+    if (!word) continue;
     const b = books.get(l.book_key);
-    const ts = Number(l.timestamp) || Number(w.timestamp) || 0;
+    if (!b && l.book_key) stats.withoutBook++;
+    const ts = Number(l.timestamp) || Number(w && w.timestamp) || 0;
+    const asin = b && b.asin ? String(b.asin) : asinOfBookKey(l.book_key);
     entries.push({
-      key: hash53(`${w.word}\u0001${l.usage || ''}`),
-      word: w.word,
-      stem: w.stem || null,
-      language: (w.lang || (b && b.lang) || null),
+      key: hash53(`${word}\u0001${l.usage || ''}`),
+      word,
+      stem: (w && w.stem) || null,
+      language: ((w && w.lang) || (b && b.lang) || fromKey.lang || null),
       context: l.usage || null,
       book_title: b ? b.title : null,
       book_authors: b ? b.authors : null,
       book_lang: b ? b.lang : null,
-      book_asin: b && b.asin ? String(b.asin) : null,
+      book_asin: asin,
       looked_up_at: ts ? new Date(ts).toISOString() : null,
       // En el Vocabulary Builder del Kindle, category 100 = «Aprendida».
-      mastered: Number(w.category) === 100,
+      mastered: Number(w && w.category) === 100,
     });
   }
   entries.sort((a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || ''));
-  return entries;
+  return { entries, stats };
+}
+
+/** Búsquedas (o restos de ellas) en páginas que no cuelgan de ninguna tabla. */
+function orphanLookups(db, bookTitles) {
+  const live = new Set(db.rows('LOOKUPS').map(l => l.id));
+  const perBook = new Map();
+  const sample = [];
+  let total = 0;
+  for (const { values } of db.orphanRows()) {
+    // Forma de una fila de LOOKUPS: id, word_key («en:…»), book_key, dict_key, pos, usage, timestamp.
+    const [id, wordKey, bookKey, , , usage, ts] = values;
+    if (values.length < 6 || typeof id !== 'string' || typeof wordKey !== 'string' || !/^[a-z]{2,3}(-[A-Za-z]+)?:/.test(wordKey) || live.has(id)) continue;
+    total++;
+    const t = bookTitles.get(bookKey) || `(clave ${bookKey})`;
+    perBook.set(t, (perBook.get(t) || 0) + 1);
+    if (sample.length < 10) sample.push({ word: splitKey(wordKey).word, book: t, at: Number(ts) ? new Date(Number(ts)).toISOString() : null, usage: typeof usage === 'string' ? usage.slice(0, 80) : null });
+  }
+  return { total, perBook: [...perBook.entries()], sample };
 }
 
 // ---------- Detección de idioma por palabras frecuentes ----------

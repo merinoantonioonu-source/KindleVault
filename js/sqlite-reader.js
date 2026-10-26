@@ -32,6 +32,21 @@ export class SQLiteReader {
     this.walFrames = 0;
     if (walBytes && walBytes.byteLength > 32) this._loadWal(walBytes);
     this._schema = null;
+    this._reached = new Set(); // páginas alcanzadas desde algún B-tree (para el diagnóstico)
+  }
+
+  /** Datos de la cabecera, para el informe. */
+  info() {
+    const v = this.view;
+    return {
+      pageSize: this.pageSize,
+      pages: Math.floor(this.bytes.byteLength / this.pageSize),
+      pagesInHeader: v.getUint32(28),
+      freelistPages: v.getUint32(36),
+      changeCounter: v.getUint32(24),
+      autoVacuum: v.getUint32(52) !== 0,
+      walMode: this.walMode,
+    };
   }
 
   // ---------- WAL ----------
@@ -87,6 +102,7 @@ export class SQLiteReader {
       const pageNo = stack.pop();
       if (seen.has(pageNo)) continue; // protección ante bases corruptas
       seen.add(pageNo);
+      this._reached.add(pageNo);
       const page = this._page(pageNo);
       const hdr = pageNo === 1 ? 100 : 0;
       const pv = new DataView(page.buffer, page.byteOffset, page.byteLength);
@@ -125,6 +141,7 @@ export class SQLiteReader {
     let written = local;
     let next = new DataView(page.buffer, page.byteOffset).getUint32(pos + local);
     while (written < total && next) {
+      this._reached.add(next);
       const ov = this._page(next);
       const chunk = Math.min(U - 4, total - written);
       out.set(ov.subarray(4, 4 + chunk), written);
@@ -173,14 +190,62 @@ export class SQLiteReader {
   schema() {
     if (this._schema) return this._schema;
     const tables = {};
+    this._indexRoots = [];
     for (const [, payload] of this._walkTable(1)) {
       const [type, name, , rootpage, sql] = this._record(payload);
       if (type === 'table' && rootpage) {
-        tables[name.toLowerCase()] = { name, rootpage, ...SQLiteReader._parseColumns(sql || '') };
-      }
+        tables[name.toLowerCase()] = { name, rootpage, sql: sql || '', ...SQLiteReader._parseColumns(sql || '') };
+      } else if (type === 'index' && rootpage) this._indexRoots.push(rootpage);
     }
     this._schema = tables;
     return tables;
+  }
+
+  // Marca las páginas de un índice (para saber cuáles no cuelgan de ningún árbol).
+  _markIndex(rootPage) {
+    const stack = [rootPage];
+    while (stack.length) {
+      const pageNo = stack.pop();
+      if (this._reached.has(pageNo)) continue;
+      this._reached.add(pageNo);
+      const page = this._page(pageNo);
+      const pv = new DataView(page.buffer, page.byteOffset, page.byteLength);
+      if (page[0] !== 0x02) continue; // hoja (0x0a) u otra cosa
+      const nCells = pv.getUint16(3);
+      for (let i = 0; i < nCells; i++) stack.push(pv.getUint32(pv.getUint16(12 + i * 2)));
+      stack.push(pv.getUint32(8));
+    }
+  }
+
+  /**
+   * Filas en hojas de tabla que no cuelgan de ningún árbol: restos de filas
+   * borradas (páginas libres) o, si las hubiera, filas que este lector no
+   * alcanza. Solo para el diagnóstico.
+   */
+  *orphanRows() {
+    const schema = this.schema();
+    for (const t of Object.values(schema)) for (const _ of this._walkTable(t.rootpage)) { /* marca */ }
+    for (const r of this._indexRoots) { try { this._markIndex(r); } catch { /* índice ilegible */ } }
+    const pages = Math.floor(this.bytes.byteLength / this.pageSize);
+    for (let n = 2; n <= Math.max(pages, ...this.walPages.keys()); n++) {
+      if (this._reached.has(n)) continue;
+      let page;
+      try { page = this._page(n); } catch { continue; }
+      if (page[0] !== 0x0d) continue;
+      const pv = new DataView(page.buffer, page.byteOffset, page.byteLength);
+      const nCells = pv.getUint16(3);
+      if (!nCells || 8 + nCells * 2 > this.pageSize) continue;
+      for (let i = 0; i < nCells; i++) {
+        try {
+          let p = pv.getUint16(8 + i * 2);
+          if (p < 8 || p >= this.pageSize) continue;
+          const [psize, n1] = SQLiteReader._varint(page, p); p += n1;
+          const [rowid, n2] = SQLiteReader._varint(page, p); p += n2;
+          if (psize > 1000000n) continue;
+          yield { page: n, rowid: Number(rowid), values: this._record(this._payload(page, p, Number(psize))) };
+        } catch { /* celda rota */ }
+      }
+    }
   }
 
   static _parseColumns(sql) {

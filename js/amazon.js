@@ -3,14 +3,16 @@
 // Kindle de Amazon (read.amazon.com/notebook o leer.amazon.es/notebook), con la
 // sesión iniciada. Allí mismo lee la lista de libros con subrayados (todos,
 // también los no descargados en ningún aparato) y los subrayados y notas de
-// cada uno, y descarga un archivo .json para importarlo en KindleVault.
-// No envía nada a ningún sitio: solo lee páginas de Amazon con tu sesión.
+// cada uno. Al terminar, «Llevar a KindleVault» abre KindleVault y le pasa los
+// datos directamente (postMessage, solo a la dirección de KindleVault); si el
+// navegador no lo permite, se descargan en un .json para importarlo a mano.
+// No envía nada a ningún otro sitio: solo lee páginas de Amazon con tu sesión.
 //
 // OJO: la función se convierte en texto y se ejecuta dentro de la página de
 // Amazon, así que no puede usar nada de fuera de ella. Sin comentarios de
 // línea dentro: algunos navegadores juntan las líneas del marcador.
 
-function kindleVaultAmazon() {
+function kindleVaultAmazon(kvUrl) {
   if (window.__kindleVaultRunning) return;
   window.__kindleVaultRunning = true;
   const box = document.createElement('div');
@@ -116,24 +118,60 @@ function kindleVaultAmazon() {
       }
       const data = { format: 'kindlevault-amazon', version: 1, exportedAt: new Date().toISOString(), source: location.host, books: out };
       const name = 'kindlevault-amazon-' + new Date().toISOString().slice(0, 10) + '.json';
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      const download = () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      };
       const bad = out.filter(b => b.failed).length;
-      say('✓ ' + out.length + ' libros y ' + total + ' subrayados y notas.' +
+      const summary = '✓ ' + out.length + ' libros y ' + total + ' subrayados y notas.' +
         (bad ? '<br>' + (bad === 1 ? '1 libro no se pudo leer' : bad + ' libros no se pudieron leer') + ' (vuelve a pulsar el marcador más tarde para reintentarlo).' : '') +
-        (!total ? '<br><b>No he encontrado ningún subrayado</b>: puede que Amazon haya cambiado su página.' : '') +
-        '<br><br>Se ha descargado <b>' + escapeHtml(name) + '</b>. Ábrelo en KindleVault: <b>Importar → Elegir archivos</b>.', true);
+        (!total ? '<br><b>No he encontrado ningún subrayado</b>: puede que Amazon haya cambiado su página.' : '');
+      const btn = 'padding:6px 14px;cursor:pointer;margin:8px 8px 0 0;border-radius:6px;border:1px solid #8b3a2f;';
+      const manual = '<br><br>Si no se abre, pulsa <b>Descargar el archivo</b> (<b>' + escapeHtml(name) + '</b>, en tu carpeta de Descargas) y, en KindleVault, <b>Importar → Elegir archivos</b>, o arrástralo a la página de KindleVault.';
+      say(summary + '<br><br>Último paso: pásalos a KindleVault.<br>' +
+        (kvUrl ? '<button id="kv-send" style="' + btn + 'background:#8b3a2f;color:#fff">Llevar a KindleVault</button>' : '') +
+        '<button id="kv-download" style="' + btn + 'background:#fff;color:#8b3a2f">Descargar el archivo</button>' +
+        '<div id="kv-status" style="margin-top:8px"></div>', true);
+      const status = box.querySelector('#kv-status');
+      box.querySelector('#kv-download').onclick = () => { download(); status.innerHTML = 'Descargado <b>' + escapeHtml(name) + '</b> (en tu carpeta de Descargas). Ábrelo en KindleVault con <b>Importar → Elegir archivos</b>, o arrástralo a su página.'; };
+      if (kvUrl) box.querySelector('#kv-send').onclick = () => {
+        const target = new URL(kvUrl);
+        const w = window.open(kvUrl, '_blank');
+        let done = false, tries = 0;
+        const onMsg = e => {
+          if (e.origin !== target.origin || !e.data || e.data.type !== 'kindlevault-amazon-ok') return;
+          done = true;
+          window.removeEventListener('message', onMsg);
+          status.innerHTML = '✓ Pasados a KindleVault. Ya puedes cerrar esta pestaña.';
+        };
+        window.addEventListener('message', onMsg);
+        status.textContent = 'Abriendo KindleVault…';
+        const timer = setInterval(() => {
+          tries++;
+          if (done) { clearInterval(timer); return; }
+          if (!w || w.closed || tries > 40) {
+            clearInterval(timer);
+            window.removeEventListener('message', onMsg);
+            status.innerHTML = 'No he podido pasárselos directamente.' + manual;
+            return;
+          }
+          try { w.postMessage({ type: 'kindlevault-amazon', data }, target.origin); } catch (e) { tries = 99; }
+        }, 500);
+      };
     } catch (e) {
       say('Algo ha fallado: ' + escapeHtml(e && e.message), true);
     }
   })();
 }
 
-/** El enlace que se arrastra a la barra de marcadores. */
-export function amazonBookmarkletHref() {
-  return 'javascript:' + encodeURIComponent('(' + kindleVaultAmazon.toString() + ')()');
+/** El enlace que se arrastra a la barra de marcadores; kvUrl: dónde está KindleVault. */
+export function amazonBookmarkletHref(kvUrl = null) {
+  return 'javascript:' + encodeURIComponent('(' + kindleVaultAmazon.toString() + ')(' + JSON.stringify(kvUrl) + ')');
 }
+
+/** Páginas del cuaderno de Kindle de Amazon (las únicas que pueden pasarle datos a KindleVault). */
+export const AMAZON_NOTEBOOK_ORIGIN = /^https:\/\/(read|leer|lire|leggi|ler|lesen)\.amazon\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/;

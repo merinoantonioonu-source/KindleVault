@@ -9,14 +9,17 @@ const ASIN_RE = /^(B0[A-Z0-9]{8}|\d{9}[\dX])$/;
 export function metaFromFileName(name) {
   let t = name.replace(/\.[^.]+$/, '');
   let asin = null;
+  // Muestras gratuitas: «Título_B0GL8CH4YT_sample.kfx».
+  const sample = /_sample$/i.test(t);
+  if (sample) t = t.replace(/_sample$/i, '');
   let m = t.match(/-asin_([A-Z0-9]{10})-type_[A-Z]+-v_\d+$/i);
   if (m) { asin = m[1].toUpperCase(); t = t.slice(0, m.index); }
   m = t.match(/[_-]([A-Z0-9]{10})(?:_(?:EBOK|EBSP|PDOC))?$/);
   if (m && ASIN_RE.test(m[1])) { asin = m[1]; t = t.slice(0, m.index); }
   m = t.match(/^([A-Z0-9]{10})(?:_(?:EBOK|EBSP|PDOC))?$/);
-  if (m && ASIN_RE.test(m[1])) return { title: null, author: null, asin: m[1] };
+  if (m && ASIN_RE.test(m[1])) return { title: null, author: null, asin: m[1], sample };
   t = t.replace(/_ /g, ': ').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
-  return { title: t || null, author: null, asin };
+  return { title: t || null, author: null, asin, sample };
 }
 
 const ascii = (b, o, n) => String.fromCharCode(...b.subarray(o, o + n));
@@ -49,6 +52,7 @@ export function mobiMeta(bytes) {
         else if (type === 503) out.title = val() || out.title;
         else if (type === 113 || (type === 504 && !out.asin)) { const a = val(); if (ASIN_RE.test(a)) out.asin = a; }
         else if (type === 524) out.language = val();
+        else if (type === 531 || type === 532) out.dictionary = true; // idiomas de entrada/salida de un diccionario
         p += len;
       }
     }
