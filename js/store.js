@@ -84,6 +84,8 @@ export const WORD_STATUSES = ['sent', 'known', 'ignored'];
  */
 export const wordKey = v => `${v.language || '?'}\u0001${norm(v.stem || v.word).toLowerCase()}`;
 
+const vocabTwinKey = v => `${fold(v.word)}\u0001${compact(v.context)}`;
+
 /** Posición de un subrayado para compararlo con otros del mismo libro. */
 function span(h) {
   if (h.location_start != null) return { unit: 'loc', a: h.location_start, b: h.location_end ?? h.location_start };
@@ -204,8 +206,39 @@ export class Library {
     return { added, dup, moved };
   }
 
+  /** Misma palabra y misma frase (sin fijarse en espacios ni mayúsculas): la misma búsqueda. */
+  _vocabTwinIndex() {
+    const idx = new Map();
+    for (const v of this.vocab.values()) idx.set(vocabTwinKey(v), v);
+    return idx;
+  }
+
+  /**
+   * Hora real de unas búsquedas con hora sin zona (naive_at, de Kindle Mate):
+   * se calcula el desfase con las que ya están aquí con su hora del Kindle y,
+   * si no hay ninguna, se toma como hora local de este ordenador.
+   */
+  resolveNaiveTimes(entries) {
+    const idx = this._vocabTwinIndex();
+    const diffs = [];
+    for (const v of entries) {
+      const old = v.naive_at && idx.get(vocabTwinKey(v));
+      if (old && old.looked_up_at) diffs.push(Date.parse(old.looked_up_at) - Date.parse(v.naive_at));
+    }
+    diffs.sort((a, b) => a - b);
+    const q = 15 * 60 * 1000;
+    const offset = diffs.length ? Math.round(diffs[diffs.length >> 1] / q) * q : null;
+    for (const v of entries) {
+      if (!v.naive_at) { v.looked_up_at = null; continue; }
+      const t = offset != null ? Date.parse(v.naive_at) + offset : new Date(v.naive_at.slice(0, -1)).getTime();
+      v.looked_up_at = new Date(t).toISOString();
+    }
+    return offset;
+  }
+
   importVocab(entries) {
     let added = 0;
+    const twins = this._vocabTwinIndex();
     for (const v of entries) {
       let book = null;
       if (v.book_title) book = this.findOrCreateBook(v.book_title, v.book_authors, v.book_lang, v.book_asin);
@@ -218,8 +251,16 @@ export class Library {
         if (v.mastered !== undefined) old.mastered = v.mastered;
         continue;
       }
-      const { book_authors, book_lang, book_asin, ...rest } = v;
-      this.vocab.set(v.key, { ...rest, bookKey: book ? book.key : null });
+      // La misma búsqueda llegada por otra vía (p. ej. Kindle Mate y el Kindle).
+      const twin = twins.get(vocabTwinKey(v));
+      if (twin) {
+        if (!twin.bookKey && book) { twin.bookKey = book.key; twin.bookAt = new Date().toISOString(); }
+        continue;
+      }
+      const { book_authors, book_lang, book_asin, naive_at, ...rest } = v;
+      const item = { ...rest, bookKey: book ? book.key : null };
+      this.vocab.set(v.key, item);
+      twins.set(vocabTwinKey(item), item);
       added++;
     }
     // Lo que el Kindle ya da por aprendido entra como «Me la sé», pero con la
