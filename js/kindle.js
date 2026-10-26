@@ -93,6 +93,28 @@ async function listDeviceBooks(dir, path = '', depth = 0, out = []) {
   return out;
 }
 
+/**
+ * Bases de datos y archivos de vocabulario en el Kindle, fuera de documents
+ * (por si el Kindle guarda las búsquedas en otro sitio). Solo para el informe.
+ */
+async function findDatabases(dir, path = '', depth = 0, out = []) {
+  if (depth > 5 || out.length > 60) return out;
+  let entries = [];
+  try { for await (const e of dir.entries()) entries.push(e); } catch { return out; }
+  for (const [name, h] of entries) {
+    if (h.kind === 'directory') {
+      if (depth === 0 && /^(documents|system volume information|audible|fonts|screenshots|voice)$/i.test(name)) continue;
+      await findDatabases(h, `${path}${name}/`, depth + 1, out);
+    } else if (/\.(db|sqlite3?|db-wal|db-journal|db-shm)$|vocab|lookup/i.test(name)) {
+      try {
+        const f = await h.getFile();
+        out.push(`${path}${name} (${f.size} bytes, ${new Date(f.lastModified).toISOString()})`);
+      } catch { out.push(`${path}${name} (ilegible)`); }
+    }
+  }
+  return out;
+}
+
 async function rootEntries(dir) {
   const names = [];
   try { for await (const [name, h] of dir.entries()) names.push(h.kind === 'directory' ? `${name}/` : name); } catch { /* */ }
@@ -124,6 +146,7 @@ export async function readKindleFolder(dir) {
       folder: (await folderListing(dir, ['system', 'vocabulary'])) || (await folderListing(dir, ['vocabulary'])),
     } : null,
     deviceBooks: documents ? await listDeviceBooks(documents) : null,
+    databases: documents ? await findDatabases(dir) : null,
   };
 }
 

@@ -255,6 +255,31 @@ function vocabEntries(db) {
     });
   }
   entries.sort((a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || ''));
+  // Palabras que siguen en WORDS pero sin ninguna búsqueda en LOOKUPS: el
+  // Kindle no conserva ya su frase ni su libro.
+  const looked = new Set(lookups.map(l => l.word_key));
+  const lone = [];
+  for (const w of wordRows) {
+    if (looked.has(w.id)) continue;
+    const word = w.word || w.stem || splitKey(w.id).word;
+    if (!word) continue;
+    const ts = Number(w.timestamp) || 0;
+    lone.push({
+      key: hash53(`${word}\u0001`),
+      word,
+      stem: w.stem || null,
+      language: w.lang || splitKey(w.id).lang || null,
+      context: null,
+      book_title: null, book_authors: null, book_lang: null, book_asin: null,
+      looked_up_at: ts ? new Date(ts).toISOString() : null,
+      mastered: Number(w.category) === 100,
+      no_lookup: true,
+    });
+  }
+  lone.sort((a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || ''));
+  stats.lone = lone;
+  stats.latestWords = [...wordRows].sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)).slice(0, 20)
+    .map(w => ({ word: w.word, at: Number(w.timestamp) ? new Date(Number(w.timestamp)).toISOString() : null, lookup: looked.has(w.id) }));
   return { entries, stats };
 }
 

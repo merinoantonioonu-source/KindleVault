@@ -225,6 +225,8 @@ function buildReport(r, info) {
     if (v.stats) {
       const st = v.stats;
       out.push(`Filas: LOOKUPS ${st.lookups}, WORDS ${st.words}, BOOK_INFO ${st.bookInfo} · búsquedas sin su palabra en WORDS: ${st.withoutWord} · sin su libro en BOOK_INFO: ${st.withoutBook}`);
+      out.push(`Palabras de WORDS sin ninguna búsqueda en LOOKUPS: ${st.lone.length}`);
+      out.push('Palabras más recientes en WORDS (¿con búsqueda?):', ...st.latestWords.map(w => `  · ${w.at || '(sin fecha)'} — ${w.word} — ${w.lookup ? 'sí' : 'no'}`));
       out.push('BOOK_INFO:', ...st.books.map(b => `  · ${b.id} · ${b.asin || '-'} · ${b.title}`));
       out.push('Búsquedas por book_key:', ...[...st.bookKeys.entries()].map(([k, n]) => `  · ${k || '(vacío)'} — ${n}`));
       for (const [name, sql] of Object.entries(st.tables)) out.push(`Tabla ${name}: ${sql.replace(/\s+/g, ' ')}`);
@@ -251,6 +253,7 @@ function buildReport(r, info) {
     const dc = b.device_counts;
     out.push(`  · ${b.title}${b.author ? ` — ${b.author}` : ''}: ${b.hl_count}${dc ? ` / ${dc.highlights} (notas ${dc.notes}, marcadores ${dc.bookmarks})` : ''} · ${b.vocab_count} palabras · ${b.on_device ? 'sí' : 'no'}${b.in_cloud ? ' · en la nube' : ''}`);
   }
+  if (r.databases) out.push(`Bases de datos en el Kindle fuera de documents (${r.databases.length}):`, ...r.databases.map(d => `  · ${d}`));
   for (const n of info.notebooks || []) out.push(`Cuaderno: ${n}`);
   for (const n of info.amazon || []) out.push(`Nube de Amazon: ${n}`);
   return out.join('\n');
@@ -270,6 +273,7 @@ async function processImport(r, { rescan = false } = {}) {
     return;
   }
   const lines = [];
+  const actions = [{ label: 'Copiar informe detallado', run: copyReport }];
   if (r.folderName) lines.push(`Leído de «${r.folderName}».`);
   const info = {};
   let diag = null;
@@ -318,6 +322,13 @@ async function processImport(r, { rescan = false } = {}) {
         const lastBook = last.book_title || (last.book_asin && (lib.findBookByAsin(last.book_asin) || {}).title);
         lines.push(`La última palabra buscada que hay en vocab.db es «${last.word}»${lastBook ? `, en «${lastBook}»` : ''}${last.looked_up_at ? ` (${fmtWhen(last.looked_up_at)})` : ''}.` +
           (r.vocab.db.modified ? ` El Kindle guardó vocab.db por última vez: ${fmtWhen(new Date(r.vocab.db.modified).toISOString())}.` : ''));
+      }
+      // Palabras sin frase ni libro: solo si se piden (pueden ser miles de búsquedas antiguas).
+      const lone = res.stats.lone.filter(v => !lib.vocab.has(v.key));
+      if (lone.length) {
+        pendingLoneWords = lone;
+        lines.push(`Además, vocab.db guarda ${fmtNum(lone.length)} palabra${lone.length === 1 ? '' : 's'} buscada${lone.length === 1 ? '' : 's'} sin su frase ni su libro: el Kindle ya no conserva el detalle de esas búsquedas. Puedes añadirlas con el botón de abajo.`);
+        actions.push({ label: `Añadir también esas ${fmtNum(lone.length)} palabras`, run: importLoneWords });
       }
       if (res.walFrames) lines.push(`(${fmtNum(res.walFrames)} cambios aún sin volcar leídos de vocab.db-wal.)`);
       // Elegido a mano sin su -wal: pueden faltar justo las búsquedas más recientes.
@@ -397,10 +408,21 @@ async function processImport(r, { rescan = false } = {}) {
   renderRescanButtons();
   showBanner({
     title: rescan ? 'Kindle escaneado de nuevo' : 'Importación completada', message: lines.join('\n'), failures: diag && diag.failures, kind,
-    actions: [{ label: 'Copiar informe detallado', run: copyReport }],
+    actions,
   });
   sync.schedule();
   fetchCovers();
+}
+
+let pendingLoneWords = null;
+async function importLoneWords() {
+  if (!pendingLoneWords) return;
+  const added = lib.importVocab(pendingLoneWords);
+  pendingLoneWords = null;
+  await lib.save();
+  refreshAll();
+  sync.schedule();
+  showBanner({ title: 'Palabras añadidas', message: `${fmtNum(added)} palabras sin frase ni libro añadidas al vocabulario. Las verás sin libro en la lista.`, kind: 'success' });
 }
 
 async function copyReport() {
