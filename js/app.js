@@ -20,6 +20,8 @@ const state = {
   // Se ven todas salvo las que tú ignoras (al enviar a VocaMaster ya se saltan las que te sabes).
   selectedStatuses: new Set(['new', 'sent', 'known']),
   selectedWords: new Set(), // wordKey de las palabras elegidas con su casilla
+  repeatedOnly: false,      // Vocabulario: solo las que se te resisten (buscadas 2+ veces)
+  wordKey: null,            // Vocabulario: todas las búsquedas de una palabra (desde el Historial)
   lastChecked: null,
   bookView: 'all',          // Biblioteca: all | device | missing        // índice de la última casilla pulsada (Mayús+clic elige el tramo)
   search: '',
@@ -523,12 +525,13 @@ async function fetchCovers() {
 // ============================================================
 function renderLangFilters() {
   const c = $('#lang-filters');
-  const langs = lib.listLanguages();
+  // En Vocabulario cuenta el idioma de cada palabra; en lo demás, el del libro.
+  const langs = state.tab === 'vocab' ? lib.listVocabLanguages() : lib.listLanguages();
   if (!langs.length) { c.innerHTML = '<div class="filter-empty">Sin datos.</div>'; return; }
   c.innerHTML = langs.map(l => `<label>
       <input type="checkbox" class="lang-cb" value="${esc(l.lang)}" ${state.selectedLangs.has(l.lang) ? 'checked' : ''}>
       <span>${esc(langName(l.lang))}</span>
-      <span class="count">${l.count}</span>
+      <span class="count">${fmtNum(l.count)}</span>
     </label>`).join('');
   $$('.lang-cb').forEach(cb => cb.addEventListener('change', () => {
     cb.checked ? state.selectedLangs.add(cb.value) : state.selectedLangs.delete(cb.value);
@@ -568,6 +571,13 @@ function renderStatusFilters() {
     cb.checked ? state.selectedStatuses.add(cb.value) : state.selectedStatuses.delete(cb.value);
     reload();
   }));
+  const rep = lib.repeatedWordCount();
+  $('#status-filters').insertAdjacentHTML('beforeend', `<label class="repeat-filter" title="Palabras que has buscado dos veces o más (en el mismo libro o en varios): las que más cuesta retener. Se ordenan de más a menos búsquedas, con todas sus frases juntas.">
+      <input type="checkbox" id="repeated-cb" ${state.repeatedOnly ? 'checked' : ''}>
+      <span>Solo las que se te resisten</span>
+      <span class="count">${fmtNum(rep)}</span>
+    </label>`);
+  $('#repeated-cb').addEventListener('change', e => { state.repeatedOnly = e.target.checked; reload(); });
 }
 
 function renderSupersededCount() {
@@ -581,6 +591,8 @@ function currentFilters() {
     languages: state.selectedLangs,
     types: state.selectedTypes,
     statuses: state.selectedStatuses,
+    repeated: state.tab === 'vocab' && state.repeatedOnly,
+    wordKey: state.tab === 'vocab' ? state.wordKey : null,
     search: state.search,
   };
 }
@@ -592,9 +604,15 @@ function setTab(tab) {
   state.tab = tab;
   $$('.tab[data-tab]').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   $('#type-section').classList.toggle('hidden', tab !== 'highlights');
+  // El historial no usa filtros: ocupa todo el ancho.
+  $('#sidebar').classList.toggle('hidden', tab === 'history');
+  $('.main').classList.toggle('no-sidebar', tab === 'history');
+  $('#btn-toggle-filters').classList.toggle('hidden', tab === 'history');
+  $('#search').closest('.search-wrap').classList.toggle('hidden', tab === 'history');
   $('#status-section').classList.toggle('hidden', tab !== 'vocab');
-  $('#btn-export').classList.toggle('hidden', tab === 'books');
+  $('#btn-export').classList.toggle('hidden', tab === 'books' || tab === 'history');
   $('#btn-vocamaster').classList.toggle('hidden', tab !== 'vocab');
+  renderLangFilters();
   renderBookFilters();
   reload();
   renderSelectionBar();
@@ -618,12 +636,14 @@ function renderActiveFilters() {
     parts.push(titles.length === 1 ? `«${titles[0]}»` : `${fmtNum(titles.length)} libros`);
   }
   if (state.selectedLangs.size) parts.push([...state.selectedLangs].map(langName).join(', '));
-  if (!parts.length || state.tab === 'books') { el.classList.add('hidden'); return; }
+  if (state.tab === 'vocab' && state.repeatedOnly) parts.push('las que se te resisten');
+  if (state.tab === 'vocab' && state.wordKey) parts.push(`la palabra «${(lib.repeatStats().get(state.wordKey) || {}).word || '?'}»`);
+  if (!parts.length || state.tab === 'books' || state.tab === 'history') { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   el.innerHTML = `Mostrando solo: <strong>${esc(parts.join(' · '))}</strong> <button class="link-btn" id="clear-filters">Ver todo</button>`;
   $('#clear-filters').onclick = () => {
-    state.selectedBooks.clear(); state.selectedLangs.clear();
-    renderLangFilters(); renderBookFilters(); reload();
+    state.selectedBooks.clear(); state.selectedLangs.clear(); state.repeatedOnly = false; state.wordKey = null;
+    renderLangFilters(); renderBookFilters(); renderStatusFilters(); reload();
   };
 }
 
@@ -631,6 +651,7 @@ function reload() {
   renderActiveFilters();
   if (!lib.books.size && !lib.vocab.size) { renderWelcome(); return; }
   if (state.tab === 'books') { renderBooks(); return; }
+  if (state.tab === 'history') { renderHistory(); return; }
   if (state.tab === 'highlights') {
     state.results = lib.filterHighlights(currentFilters());
     renderHighlights();
@@ -734,6 +755,7 @@ function renderVocab(append = false) {
       <div>
         ${v.context ? `<div class="v-context">${highlightWord(v.context, v.word)}${speechSupported ? ' <button class="icon-btn" data-speak="context" title="Escuchar la frase" aria-label="Escuchar la frase">🔊</button>' : ''}</div>` : ''}
         ${v.book_title ? `<div class="v-source">de ${esc(v.book_title)}${v.looked_up_at ? ' · ' + esc(fmtWhen(v.looked_up_at)) : ''}</div>` : ''}
+        ${v.times > 1 ? `<div class="v-times" title="Has buscado esta palabra ${v.times} veces${v.timesBooks > 1 ? ` en ${v.timesBooks} libros` : ''}">Buscada ${fmtNum(v.times)} veces${v.timesBooks > 1 ? ` en ${fmtNum(v.timesBooks)} libros` : ''}</div>` : ''}
         <div class="v-translation hidden"></div>
         <div class="v-actions">${wordActionsHtml(v.status)}${needsTranslation(v.language) ? '<button class="link-btn" data-translate>Traducir</button>' : ''}</div>
       </div>
@@ -932,11 +954,123 @@ function renderBooks() {
   $$('.book-card').forEach(card => {
     const open = () => {
       state.selectedBooks = new Set([card.dataset.key]);
+      state.wordKey = null;
       setTab(lib.listBooks().find(b => b.key === card.dataset.key)?.highlights_count ? 'highlights' : 'vocab');
     };
     card.onclick = open;
     card.onkeydown = e => { if (e.key === 'Enter') open(); };
   });
+}
+
+// ============================================================
+//  Historial de lectura
+// ============================================================
+const fmtMonth = iso => new Date(iso).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' });
+const fmtSpan = (a, b) => (fmtMonth(a) === fmtMonth(b) ? fmtMonth(a) : `${fmtMonth(a)} – ${fmtMonth(b)}`);
+const plural = (n, one, many) => `${fmtNum(n)} ${n === 1 ? one : many}`;
+
+function renderHistory() {
+  const c = $('#results');
+  c.classList.remove('books-grid');
+  const h = lib.history();
+  setCount(h.books.length, 'libro con actividad', 'libros con actividad');
+  if (!h.years.length) {
+    c.innerHTML = '<div class="empty"><p>Todavía no hay fechas de búsquedas ni de subrayados.</p></div>';
+    return;
+  }
+  const words = h.years.reduce((n, y) => n + y.words, 0);
+  const hls = h.years.reduce((n, y) => n + y.hl, 0);
+  const since = h.years[h.years.length - 1].year;
+  const maxYear = Math.max(...h.years.map(y => y.words + y.hl));
+  const reps = [...lib.repeatStats().entries()].filter(([, r]) => r.n >= 2)
+    .sort((a, b) => b[1].n - a[1].n || b[1].books.size - a[1].books.size).slice(0, 20);
+  const topBooks = [...h.books].sort((a, b) => b.words - a.words).filter(b => b.words).slice(0, 10);
+  const maxBook = topBooks.length ? topBooks[0].words : 1;
+  const langTotal = h.langs.reduce((n, l) => n + l.count, 0) || 1;
+  const bar = (n, max, cls) => `<span class="hist-bar ${cls}" style="width:${Math.max(n ? 2 : 0, Math.round((n / max) * 100))}%"></span>`;
+
+  c.innerHTML = `<div class="history">
+    <section class="hist-summary">
+      <div><strong>${fmtNum(h.books.length)}</strong><span>libros con actividad</span></div>
+      <div><strong>${fmtNum(words)}</strong><span>palabras buscadas</span></div>
+      <div><strong>${fmtNum(hls)}</strong><span>subrayados</span></div>
+      <div><strong>${esc(since)}</strong><span>primer registro</span></div>
+    </section>
+
+    <section class="hist-section">
+      <h3>Por año</h3>
+      <div class="hist-legend"><span class="hist-dot words"></span>palabras buscadas <span class="hist-dot hl"></span>subrayados</div>
+      ${h.years.map(y => `<div class="hist-row">
+        <span class="hist-label">${esc(y.year)}</span>
+        <span class="hist-bars">${bar(y.words, maxYear, 'words')}${bar(y.hl, maxYear, 'hl')}</span>
+        <span class="hist-num">${fmtNum(y.words)} · ${fmtNum(y.hl)} · ${plural(y.books.length, 'libro', 'libros')}</span>
+      </div>`).join('')}
+    </section>
+
+    <div class="hist-cols">
+      <section class="hist-section">
+        <h3>Idiomas de las palabras</h3>
+        ${h.langs.map(l => `<button class="hist-row hist-link" data-lang="${esc(l.lang)}" title="Ver las palabras en ${esc(langName(l.lang))}">
+          <span class="hist-label">${esc(langName(l.lang))}</span>
+          <span class="hist-bars">${bar(l.count, h.langs[0].count, 'words')}</span>
+          <span class="hist-num">${fmtNum(l.count)} · ${Math.round((l.count / langTotal) * 100)} %</span>
+        </button>`).join('')}
+      </section>
+      <section class="hist-section">
+        <h3>Libros con más palabras buscadas</h3>
+        ${topBooks.map(b => `<button class="hist-row hist-link" data-book="${esc(b.key)}" data-to="vocab" title="Ver sus palabras">
+          <span class="hist-label hist-title">${esc(b.title)}</span>
+          <span class="hist-bars">${bar(b.words, maxBook, 'words')}</span>
+          <span class="hist-num">${fmtNum(b.words)}</span>
+        </button>`).join('')}
+      </section>
+    </div>
+
+    ${reps.length ? `<section class="hist-section">
+      <h3>Las que se te resisten</h3>
+      <p class="hint">Palabras que has buscado más de una vez. Pulsa una para ver todas sus frases, o
+        <button class="link-btn" id="hist-all-reps">ver las ${fmtNum(lib.repeatedWordCount())}</button> y enviarlas a VocaMaster.</p>
+      <div class="hist-chips">${reps.map(([k, r]) => `<button class="hist-chip" data-wkey="${esc(k)}" title="Buscada ${r.n} veces${r.books.size > 1 ? ` en ${r.books.size} libros` : ''}">
+        ${esc(r.word)} <span>×${r.n}${r.books.size > 1 ? ` · ${r.books.size} libros` : ''}</span></button>`).join('')}</div>
+    </section>` : ''}
+
+    <section class="hist-section">
+      <h3>Línea de tiempo</h3>
+      <p class="hint">Cuándo leíste cada libro, según las fechas de tus búsquedas y subrayados. Pulsa un libro para abrirlo.</p>
+      ${h.years.map(y => `<div class="hist-year">
+        <h4>${esc(y.year)}</h4>
+        ${y.books.map(b => `<button class="hist-book hist-link" data-book="${esc(b.key)}" data-to="${b.inYear.hl ? 'highlights' : 'vocab'}">
+          <span class="hist-book-title">${esc(b.title)}${b.author ? ` <span class="hist-author">· ${esc(b.author)}</span>` : ''}</span>
+          <span class="hist-book-meta">${esc(fmtSpan(b.inYear.first, b.inYear.last))}${[b.inYear.words ? plural(b.inYear.words, 'palabra', 'palabras') : '', b.inYear.hl ? plural(b.inYear.hl, 'subrayado', 'subrayados') : ''].filter(Boolean).map(x => ` · ${x}`).join('')}</span>
+        </button>`).join('')}
+      </div>`).join('')}
+    </section>
+  </div>`;
+  c.scrollTop = 0;
+
+  c.querySelectorAll('[data-book]').forEach(el => { el.onclick = () => {
+    state.selectedBooks = new Set([el.dataset.book]); state.selectedLangs.clear(); state.repeatedOnly = false; state.wordKey = null;
+    setSearch(''); setTab(el.dataset.to);
+  }; });
+  c.querySelectorAll('[data-lang]').forEach(el => { el.onclick = () => {
+    state.selectedBooks.clear(); state.selectedLangs = new Set([el.dataset.lang]); state.repeatedOnly = false; state.wordKey = null;
+    setSearch(''); setTab('vocab');
+  }; });
+  c.querySelectorAll('[data-wkey]').forEach(el => { el.onclick = () => {
+    state.selectedBooks.clear(); state.selectedLangs.clear(); state.repeatedOnly = false;
+    state.wordKey = el.dataset.wkey;
+    setSearch(''); setTab('vocab');
+  }; });
+  const all = $('#hist-all-reps');
+  if (all) all.onclick = () => {
+    state.selectedBooks.clear(); state.selectedLangs.clear(); state.repeatedOnly = true; state.wordKey = null;
+    setSearch(''); renderStatusFilters(); setTab('vocab');
+  };
+}
+
+function setSearch(q) {
+  state.search = q;
+  $('#search').value = q;
 }
 
 // ============================================================
@@ -1028,6 +1162,7 @@ function renderVocaMaster() {
     baseForm: $('#vm-base-form').checked,
     includeSent: $('#vm-include-sent').checked,
     withContext: $('#vm-with-context').checked,
+    byBook: $('#vm-by-book').checked,
     explicit: chosen,
   });
   const c = $('#vm-blocks');
@@ -1037,12 +1172,15 @@ function renderVocaMaster() {
   }
   const langs = new Set(vmBlocks.map(b => b.lang));
   const words = vmBlocks.reduce((n, b) => n + b.terms.length, 0);
-  let html = `<p class="vm-summary">${fmtNum(words)} palabras en ${fmtNum(vmBlocks.length)} bloque${vmBlocks.length === 1 ? '' : 's'}${langs.size > 1 ? `, separadas por idioma (cada idioma va a su lista de VocaMaster)` : ''}.</p>`;
+  const nBooks = new Set(vmBlocks.map(b => b.book)).size;
+  let html = `<p class="vm-summary">${fmtNum(words)} palabras en ${fmtNum(vmBlocks.length)} bloque${vmBlocks.length === 1 ? '' : 's'}` +
+    `${langs.size > 1 ? `, separadas por idioma (cada idioma va a su lista de VocaMaster)` : ''}.` +
+    ($('#vm-by-book').checked ? ` Son de ${plural(nBooks, 'libro', 'libros')}: crea en VocaMaster una lista por libro y pega en ella sus bloques.` : '') + '</p>';
   html += vmBlocks.map((b, i) => {
     const preview = b.terms.slice(0, 12).join(', ') + (b.terms.length > 12 ? '…' : '');
     return `<div class="vm-block" data-i="${i}">
       <div class="vm-block-head">
-        <div><strong>${esc(langName(b.lang))}</strong>${b.total > 1 ? ` · bloque ${b.index} de ${b.total}` : ''} · ${fmtNum(b.terms.length)} palabras</div>
+        <div>${b.book !== undefined ? `<strong>${esc(b.book || 'Sin libro')}</strong> · ${esc(langName(b.lang))}` : `<strong>${esc(langName(b.lang))}</strong>`}${b.total > 1 ? ` · bloque ${b.index} de ${b.total}` : ''} · ${plural(b.terms.length, 'palabra', 'palabras')}</div>
         <button class="btn btn-primary" data-vm-copy="${i}">Copiar</button>
       </div>
       <div class="vm-preview">${esc(preview)}</div>
@@ -1187,6 +1325,7 @@ function wire() {
   $('#vm-base-form').onchange = renderVocaMaster;
   $('#vm-include-sent').onchange = renderVocaMaster;
   $('#vm-with-context').onchange = renderVocaMaster;
+  $('#vm-by-book').onchange = renderVocaMaster;
   $$('input[name="vm-scope"]').forEach(r => { r.onchange = renderVocaMaster; });
   $('#selection-bar').addEventListener('click', e => {
     const btn = e.target.closest('[data-sel-act]');

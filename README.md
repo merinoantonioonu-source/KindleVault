@@ -36,7 +36,15 @@ En **Vocabulario**, pulsa **Enviar a VocaMaster**. Las palabras salen en bloques
 
 Al copiar un bloque, sus palabras quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** de la izquierda decide cuáles se ven. Estas marcas viajan con la sincronización.
 
+Con **Un bloque por libro**, cada libro sale en sus propios bloques (con su título), para tener en VocaMaster una lista por libro.
+
+**Las que se te resisten.** En **Vocabulario**, el filtro **Solo las que se te resisten** deja las palabras que has buscado dos veces o más (en el mismo libro o en varios), de más a menos búsquedas y con todas sus frases juntas; cada palabra repetida lo indica («Buscada 7 veces en 6 libros»). Son buenas candidatas para VocaMaster. El filtro **Idioma** cuenta, en esta pestaña, el idioma de cada palabra.
+
 Para mandar solo **palabras concretas**, marca su casilla en la lista (Mayús+clic elige un tramo) y pulsa **Enviar a VocaMaster** en la barra que aparece encima.
+
+## Historial de lectura
+
+La pestaña **Historial** saca de las fechas de tus búsquedas y subrayados: cuántos hay por año, los idiomas de tus palabras, los libros con más palabras buscadas, las palabras que más se te resisten y una **línea de tiempo** con cuándo leíste cada libro. Todo se puede pulsar: un libro abre sus subrayados o sus palabras; una palabra, todas sus frases.
 
 ## Escuchar y traducir
 

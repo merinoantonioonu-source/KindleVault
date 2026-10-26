@@ -119,16 +119,18 @@ export const VOCAMASTER_BLOCK_SIZE = 50;
 const VOCAMASTER_BLOCK_CHARS = 20000; // VocaMaster lee como mucho 30.000 caracteres de una vez
 
 /** explicit: palabras elegidas a mano con su casilla; van todas, tengan la marca que tengan. */
-export function vocamasterBlocks(items, { baseForm = true, includeSent = false, withContext = true, explicit = false, blockSize = VOCAMASTER_BLOCK_SIZE } = {}) {
+export function vocamasterBlocks(items, { baseForm = true, includeSent = false, withContext = true, explicit = false, byBook = false, blockSize = VOCAMASTER_BLOCK_SIZE } = {}) {
+  // Por idioma y, si se pide, también por libro (cada libro, su propia lista en VocaMaster).
   const byLang = new Map();
   for (const v of items) {
     if (!explicit && (v.status === 'known' || v.status === 'ignored')) continue;
     if (!explicit && v.status === 'sent' && !includeSent) continue;
     const term = oneLine(baseForm && v.stem ? v.stem : v.word).replace(/\|/g, '/');
     if (!term) continue;
-    const lang = v.language || '?';
-    if (!byLang.has(lang)) byLang.set(lang, new Map());
-    const words = byLang.get(lang);
+    const lang = String(v.language || '?').split('-')[0].toLowerCase();
+    const group = byBook ? `${lang}\u0001${v.book_title || ''}` : lang;
+    if (!byLang.has(group)) byLang.set(group, new Map());
+    const words = byLang.get(group);
     const k = term.toLowerCase();
     // Si la palabra se buscó varias veces, va la frase más reciente (la lista llega ordenada así).
     if (!words.has(k)) words.set(k, { term, context: oneLine(v.context).replace(/\|/g, '/'), keys: new Set() });
@@ -138,7 +140,10 @@ export function vocamasterBlocks(items, { baseForm = true, includeSent = false, 
   }
   const lineOf = w => (withContext && w.context ? `${w.term} | ${w.context}` : w.term);
   const blocks = [];
-  for (const [lang, words] of byLang) {
+  const groups = [...byLang.entries()];
+  if (byBook) groups.sort(([a], [b]) => a.split('\u0001')[1].localeCompare(b.split('\u0001')[1], 'es', { sensitivity: 'base' }));
+  for (const [group, words] of groups) {
+    const [lang, book] = group.split('\u0001');
     const parts = [];
     let cur = [], chars = 0;
     for (const w of words.values()) {
@@ -149,6 +154,7 @@ export function vocamasterBlocks(items, { baseForm = true, includeSent = false, 
     if (cur.length) parts.push(cur);
     parts.forEach((part, i) => blocks.push({
       lang,
+      book: byBook ? (book || null) : undefined,
       index: i + 1,
       total: parts.length,
       terms: part.map(w => w.term),
