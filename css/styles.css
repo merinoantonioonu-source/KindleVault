@@ -1138,3 +1138,11 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px s
 .vm-manual { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
 .vm-manual summary { cursor: pointer; font-size: 13px; color: var(--text-2); font-weight: 500; }
 .vm-manual .steps { margin-top: 10px; }
+
+/* Abrir mapas en UltraMind */
+.um-send { margin-top: 10px; }
+.um-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.um-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.um-title { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.um-count { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.um-url { margin-top: 6px; font-size: 12px; }

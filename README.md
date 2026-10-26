@@ -28,7 +28,9 @@ Los archivos, o una carpeta copiada del Kindle, también se pueden arrastrar a c
 
 En **Subrayados y notas**, pulsa **Exportar** y elige el formato **UltraMind — mapa mental**. Sale **un mapa por libro**: el título es el tema central y cada subrayado, una rama. No lleva ubicación, fecha ni autor; solo las notas que escribiste tú en el Kindle, guardadas en la nota de su subrayado. Con varios libros se descarga un archivo por libro.
 
-En UltraMind: **Abrir o importar** y arrastra el archivo, o pega allí el texto (botón **Copiar**, con un solo libro filtrado) y pulsa **Importar el texto**.
+Cada libro tiene su botón **🧠 Abrir en UltraMind**: abre UltraMind y crea allí el mapa, sin descargar nada (el mapa va en la dirección, detrás de `#mapa=`, y no sale del navegador; los mapas siguientes llegan a la misma pestaña). Hace falta la versión de UltraMind que los recibe. La dirección de UltraMind se cambia en **Dirección de UltraMind**, debajo de la lista.
+
+También se puede descargar: en UltraMind, **Abrir o importar** y arrastra el archivo, o pega allí el texto (botón **Copiar**, con un solo libro filtrado) y pulsa **Importar el texto**.
 
 ## Estudiar el vocabulario en VocaMaster
 

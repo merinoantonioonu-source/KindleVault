@@ -1129,8 +1129,54 @@ function currentExport() {
   return ex;
 }
 
+// ----- UltraMind: abrir el mapa allí directamente -----
+// UltraMind lee el mapa de su propia dirección, detrás de «#mapa=» (JSON en
+// base64 apto para direcciones; esa parte no sale del navegador) y lo abre
+// como mapa nuevo. Se abre en una sola pestaña con nombre: cada mapa que se
+// manda después llega a esa misma pestaña.
+const ULTRAMIND_URL = 'https://ultramind-218544803913.europe-west1.run.app';
+const ultramindUrl = () => { try { return (localStorage.getItem('kindlevault:ultramindUrl') || ULTRAMIND_URL).replace(/\/+$/, ''); } catch { return ULTRAMIND_URL; } };
+const toBase64Url = text => {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+function openInUltraMind(map) {
+  const paquete = { fuente: 'mapa', v: 1, titulo: map.title, markdown: map.content, origen: 'kindlevault' };
+  const w = window.open(`${ultramindUrl()}/#mapa=${toBase64Url(JSON.stringify(paquete))}`, 'ultramind');
+  toast(w ? `🧠 Abriendo «${map.title}» en UltraMind…` : 'El navegador no dejó abrir UltraMind: descarga el archivo y ábrelo allí con «Abrir o importar»');
+}
+
+function renderUltraMindSend(maps) {
+  const box = $('#ultramind-send');
+  box.classList.toggle('hidden', !maps);
+  if (!maps) return;
+  const branches = m => (m.content.match(/^- /gm) || []).length;
+  box.innerHTML = maps.length
+    ? `<div class="um-list">${maps.map((m, i) => `<div class="um-row">
+          <span class="um-title">${esc(m.title)}</span>
+          <span class="um-count">${plural(branches(m), 'subrayado', 'subrayados')}</span>
+          <button class="btn btn-primary btn-sm" data-um-open="${i}">🧠 Abrir en UltraMind</button>
+        </div>`).join('')}</div>
+       <button class="link-btn um-url" id="um-url" title="${esc(ultramindUrl())}">Dirección de UltraMind</button>`
+    : '';
+  box.querySelectorAll('[data-um-open]').forEach(btn => { btn.onclick = () => openInUltraMind(maps[+btn.dataset.umOpen]); });
+  const u = $('#um-url');
+  if (u) u.onclick = () => {
+    const next = prompt('Dirección de UltraMind (la que abres en el navegador):', ultramindUrl());
+    if (next === null) return;
+    const v = next.trim();
+    if (v && !/^https:\/\/\S+|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(v)) { alert('Esa dirección no vale: tiene que empezar por https://'); return; }
+    try { v ? localStorage.setItem('kindlevault:ultramindUrl', v.replace(/\/+$/, '')) : localStorage.removeItem('kindlevault:ultramindUrl'); } catch { /* */ }
+    renderUltraMindSend(maps);
+    toast('Dirección de UltraMind guardada');
+  };
+}
+
 function refreshPreview() {
   const ex = currentExport();
+  renderUltraMindSend(ex.maps || null);
   if (ex.maps) {
     const first = ex.maps[0] ? ex.maps[0].content : '(nada que exportar con estos filtros)';
     const more = ex.maps.length - 1;
