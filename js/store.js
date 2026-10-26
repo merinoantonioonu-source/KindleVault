@@ -575,23 +575,129 @@ export class Library {
       (a.location_start ?? a.page ?? 0) - (b.location_start ?? b.page ?? 0));
   }
 
+  /** Idioma de una palabra: el suyo o, si no lo tiene, el de su libro («es-ES» → «es»). */
+  vocabLanguage(v) {
+    const b = this.books.get(v.bookKey);
+    return String(v.language || (b && b.language) || '?').split('-')[0].toLowerCase();
+  }
+
+  /** Idiomas de las palabras, con cuántas búsquedas hay de cada uno. */
+  listVocabLanguages() {
+    const counts = new Map();
+    for (const v of this.vocab.values()) {
+      const l = this.vocabLanguage(v);
+      counts.set(l, (counts.get(l) || 0) + 1);
+    }
+    return [...counts.entries()].map(([lang, count]) => ({ lang, count })).sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * Por palabra (idioma + forma base): cuántas veces se buscó, en cuántos
+   * libros y su forma más reciente. Las que se buscan una y otra vez son las
+   * que se resisten.
+   */
+  repeatStats() {
+    const sig = this.vocab.size;
+    if (this._repeatCache && this._repeatCache.sig === sig) return this._repeatCache.map;
+    const map = new Map();
+    for (const v of this.vocab.values()) {
+      if (v.no_lookup) continue;
+      const k = wordKey(v);
+      const r = map.get(k) || { n: 0, books: new Set(), word: v.stem || v.word, language: this.vocabLanguage(v), at: '' };
+      r.n++;
+      if (v.bookKey) r.books.add(v.bookKey);
+      if ((v.looked_up_at || '') > r.at) { r.at = v.looked_up_at || ''; r.word = v.stem || v.word; }
+      map.set(k, r);
+    }
+    this._repeatCache = { sig, map };
+    return map;
+  }
+
   filterVocab(f = {}) {
     const q = f.search ? fold(f.search) : null;
+    const reps = this.repeatStats();
     const out = [];
     for (const v of this.vocab.values()) {
       if (f.bookKeys && f.bookKeys.size && !f.bookKeys.has(v.bookKey)) continue;
-      if (f.languages && f.languages.size) {
-        const b = this.books.get(v.bookKey);
-        const lang = v.language || (b && b.language) || '?';
-        if (!f.languages.has(lang)) continue;
-      }
+      if (f.languages && f.languages.size && !f.languages.has(this.vocabLanguage(v))) continue;
       if (q && !fold(v.word).includes(q) && !fold(v.context).includes(q)) continue;
       const status = this.getWordStatus(v);
       if (f.statuses && !f.statuses.has(status || 'new')) continue;
+      const wkey = wordKey(v);
+      if (f.wordKey && wkey !== f.wordKey) continue;
+      const r = reps.get(wkey);
+      if (f.repeated && (!r || r.n < 2)) continue;
       const b = this.books.get(v.bookKey);
-      out.push({ ...v, status, wkey: wordKey(v), book_title: (b && b.title) || v.book_title || null });
+      out.push({ ...v, status, wkey, times: r ? r.n : 1, timesBooks: r ? r.books.size : 0, book_title: (b && b.title) || v.book_title || null });
     }
-    return out.sort((a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || ''));
+    const byDate = (a, b) => (b.looked_up_at || '').localeCompare(a.looked_up_at || '');
+    // Las que se resisten: primero las más buscadas, con todas sus frases juntas.
+    if (f.repeated) return out.sort((a, b) => b.times - a.times || a.wkey.localeCompare(b.wkey) || byDate(a, b));
+    return out.sort(byDate);
+  }
+
+  /** Cuántas palabras distintas se han buscado dos veces o más. */
+  repeatedWordCount() {
+    let n = 0;
+    for (const r of this.repeatStats().values()) if (r.n >= 2) n++;
+    return n;
+  }
+
+  /**
+   * Historial de lectura, sacado de las fechas de las búsquedas y los
+   * subrayados: por año, qué libros tuvieron actividad y cuánta; por libro,
+   * desde cuándo hasta cuándo; y los idiomas de las palabras.
+   */
+  history() {
+    const d = this._derived();
+    const books = new Map();
+    const years = new Map();
+    const langs = new Map();
+    const add = (bookKey, at, kind) => {
+      if (!at || !bookKey) return;
+      const y = at.slice(0, 4);
+      if (!/^\d{4}$/.test(y)) return;
+      let b = books.get(bookKey);
+      if (!b) {
+        const info = this.books.get(bookKey) || {};
+        b = { key: bookKey, title: info.title || '?', author: info.author || null, first: at, last: at, words: 0, hl: 0, years: new Map() };
+        books.set(bookKey, b);
+      }
+      if (at < b.first) b.first = at;
+      if (at > b.last) b.last = at;
+      b[kind]++;
+      const by = b.years.get(y) || { words: 0, hl: 0, first: at, last: at };
+      by[kind]++;
+      if (at < by.first) by.first = at;
+      if (at > by.last) by.last = at;
+      b.years.set(y, by);
+      const yr = years.get(y) || { year: y, words: 0, hl: 0, books: new Set() };
+      yr[kind]++;
+      yr.books.add(bookKey);
+      years.set(y, yr);
+    };
+    for (const h of this.highlights.values()) {
+      if (h.type !== 'highlight' || d.superseded.has(h.hash)) continue;
+      add(h.bookKey, h.highlighted_at, 'hl');
+    }
+    for (const v of this.vocab.values()) {
+      if (v.no_lookup) continue;
+      add(v.bookKey, v.looked_up_at, 'words');
+      const l = this.vocabLanguage(v);
+      langs.set(l, (langs.get(l) || 0) + 1);
+    }
+    const yearList = [...years.values()].sort((a, b) => b.year.localeCompare(a.year)).map(y => ({
+      year: y.year, words: y.words, hl: y.hl,
+      books: [...y.books].map(k => {
+        const b = books.get(k);
+        return { ...b, years: undefined, inYear: b.years.get(y.year) };
+      }).sort((a, b) => b.inYear.last.localeCompare(a.inYear.last)),
+    }));
+    return {
+      years: yearList,
+      books: [...books.values()],
+      langs: [...langs.entries()].map(([lang, count]) => ({ lang, count })).sort((a, b) => b.count - a.count),
+    };
   }
 
   /** Cuántas búsquedas hay en cada estado (para el filtro lateral). */
