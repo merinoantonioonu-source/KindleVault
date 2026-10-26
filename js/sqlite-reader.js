@@ -26,7 +26,10 @@ export class SQLiteReader {
     this.pageSize = pageSize;
     this.usable = pageSize - this.view.getUint8(20);
     this.decoder = TEXT_DECODERS[this.view.getUint32(56)] || TEXT_DECODERS[1];
+    // Versión de escritura 2 = modo WAL: los últimos cambios pueden estar aún en el -wal.
+    this.walMode = this.view.getUint8(18) === 2;
     this.walPages = new Map();
+    this.walFrames = 0;
     if (walBytes && walBytes.byteLength > 32) this._loadWal(walBytes);
     this._schema = null;
   }
@@ -45,6 +48,7 @@ export class SQLiteReader {
     for (let off = 32; off + frameSize <= wal.byteLength; off += frameSize) {
       if (v.getUint32(off + 8) !== salt1 || v.getUint32(off + 12) !== salt2) break;
       const pageNo = v.getUint32(off);
+      this.walFrames++;
       pending.set(pageNo, wal.subarray(off + 24, off + 24 + pageSize));
       // Un "commit frame" (tamaño de BD > 0) consolida todo lo pendiente.
       if (v.getUint32(off + 4) !== 0) {

@@ -868,6 +868,8 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .dialog-actions-col .btn { justify-content: center; padding: 10px 16px; }
 .steps { margin: 0 0 6px; padding-left: 20px; line-height: 1.6; color: var(--text-2); }
 .steps li { margin-bottom: 6px; }
+details.hint summary { cursor: pointer; }
+details.hint p { margin: 8px 0; }
 .plain-list { margin: 0 0 6px; padding-left: 18px; line-height: 1.6; color: var(--text-2); }
 code {
   font-family: var(--mono); font-size: 0.9em;
