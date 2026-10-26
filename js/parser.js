@@ -283,6 +283,68 @@ function vocabEntries(db) {
   return { entries, stats };
 }
 
+// ---------- Base de vocabulario exportada por Kindle Mate ----------
+// Kindle Mate guarda todo lo que ha importado alguna vez de un Kindle, también
+// lo que el Kindle ya ha borrado. Su base tiene dos tablas: «vocab» (palabras)
+// y «lookups» (búsquedas, con la frase y el título y autor del libro).
+
+/** ¿Es una base de Kindle Mate (y no el vocab.db del Kindle)? */
+export function isKindleMateDb(dbBytes) {
+  try {
+    const t = new SQLiteReader(dbBytes).schema();
+    return !!(t.vocab && t.lookups && t.lookups.columns.includes('title'));
+  } catch { return false; }
+}
+
+/** «2025-01-27 23:42:46» → «2025-01-27T23:42:46Z», sin zona (Kindle Mate no la guarda). */
+const mateTime = s => {
+  const m = String(s || '').match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/);
+  return m ? `${m[1]}T${m[2]}Z` : null;
+};
+
+/**
+ * Búsquedas y palabras de una base de Kindle Mate. Las horas van sin zona
+ * horaria (naive: «…Z» de mentira); quien importa las ajusta.
+ */
+export function readKindleMateDb(dbBytes) {
+  const db = new SQLiteReader(dbBytes);
+  const words = new Map(db.rows('vocab').map(w => [w.word_key, w]));
+  const lookups = db.rows('lookups');
+  const lang = key => { const l = splitKey(key).lang; return l ? l.split('-')[0].toLowerCase() : null; };
+  const entries = [];
+  for (const l of lookups) {
+    const w = words.get(l.word_key) || null;
+    const word = (w && w.word) || splitKey(l.word_key).word;
+    if (!word) continue;
+    const usage = (l.usage || '').trim();
+    entries.push({
+      key: hash53(`${word}\u0001${usage}`),
+      word,
+      stem: (w && w.stem) || null,
+      language: lang(l.word_key),
+      context: usage || null,
+      book_title: (l.title || '').trim() || null,
+      book_authors: (l.authors || '').trim() || null,
+      book_lang: null,
+      book_asin: null,
+      naive_at: mateTime(l.timestamp),
+      mastered: Number(w && w.category) === 100,
+    });
+  }
+  const looked = new Set(lookups.map(l => l.word_key));
+  const lone = [];
+  for (const w of words.values()) {
+    if (looked.has(w.word_key) || !w.word) continue;
+    lone.push({
+      key: hash53(`${w.word}\u0001`),
+      word: w.word, stem: w.stem || null, language: lang(w.word_key), context: null,
+      book_title: null, book_authors: null, book_lang: null, book_asin: null,
+      naive_at: mateTime(w.timestamp), mastered: Number(w.category) === 100, no_lookup: true,
+    });
+  }
+  return { entries, lone, words: words.size };
+}
+
 /** Búsquedas (o restos de ellas) en páginas que no cuelgan de ninguna tabla. */
 function orphanLookups(db, bookTitles) {
   const live = new Set(db.rows('LOOKUPS').map(l => l.id));

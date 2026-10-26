@@ -1,5 +1,5 @@
 import { Library } from './store.js';
-import { parseClippings, readVocabDbDetailed } from './parser.js';
+import { parseClippings, readVocabDbDetailed, isKindleMateDb, readKindleMateDb } from './parser.js';
 import { parseNotebookHtml, parseAmazonExport } from './notebook.js';
 import { SyncManager, syncSupported } from './sync.js';
 import { pickKindleFolder, readKindleFiles, readKindleFolder, folderAccessSupported, rescanSavedKindle, hasSavedKindle } from './kindle.js';
@@ -212,7 +212,10 @@ function buildReport(r, info) {
     out.push(`My Clippings.txt: ${d.size} bytes, ${d.encoding}, ${d.total_blocks} bloques, ${d.parsed_ok} leídos, ${d.parsed_failed} sin leer`);
   } else out.push('My Clippings.txt: no encontrado');
   if (info.clipBooks) out.push(`Libros en My Clippings.txt (${info.clipBooks.length}):`, ...info.clipBooks.map(([t, n]) => `  · ${t} — ${n}`));
-  if (r.vocab) {
+  if (info.mate) {
+    const m = info.mate;
+    out.push(`Kindle Mate: ${r.vocab.db.name}, ${r.vocab.db.bytes.byteLength} bytes · ${m.lookups} búsquedas de ${m.books} libros (${m.added} nuevas) · ${m.words} palabras, ${m.lone} sin búsqueda · desfase horario: ${m.offset == null ? 'hora local' : `${m.offset / 3600000} h`}`);
+  } else if (r.vocab) {
     const v = info.vocab || {};
     out.push(`vocab.db: ${r.vocab.db.bytes.byteLength} bytes${info.vocabCount != null ? `, ${info.vocabCount} búsquedas` : ' (no se pudo leer)'}` +
       `${v.walMode ? ', modo WAL' : ''} · vocab.db-wal: ${r.vocab.wal ? `${r.vocab.wal.bytes.byteLength} bytes, ${v.walFrames || 0} cambios leídos (${v.walPages || 0} páginas)` : 'no'}` +
@@ -300,7 +303,26 @@ async function processImport(r, { rescan = false } = {}) {
   // Primero los libros del Kindle, para casar por ASIN las palabras cuyo libro
   // no tiene ficha en vocab.db.
   const inv = r.deviceBooks ? lib.applyDeviceInventory(r.deviceBooks) : null;
-  if (r.vocab) {
+  if (r.vocab && isKindleMateDb(r.vocab.db.bytes)) {
+    // Copia de Kindle Mate: guarda también las búsquedas que el Kindle ya borró.
+    try {
+      const mate = readKindleMateDb(r.vocab.db.bytes);
+      const offset = lib.resolveNaiveTimes([...mate.entries, ...mate.lone]);
+      const added = lib.importVocab(mate.entries);
+      const books = new Set(mate.entries.map(e => e.book_title).filter(Boolean)).size;
+      info.mate = { lookups: mate.entries.length, words: mate.words, lone: mate.lone.length, added, books, offset };
+      lines.push(`Kindle Mate (${r.vocab.db.name}): ${fmtNum(mate.entries.length)} búsquedas con su frase, de ${fmtNum(books)} libros. ${fmtNum(added)} nuevas; las demás ya estaban y no se repiten. Cada una va a su libro de la Biblioteca.`);
+      const lone = mate.lone.filter(v => !lib.vocab.has(v.key));
+      if (lone.length) {
+        pendingLoneWords = lone;
+        lines.push(`Además, Kindle Mate guarda ${fmtNum(lone.length)} palabras sin frase ni libro. Puedes añadirlas con el botón de abajo.`);
+        actions.push({ label: `Añadir también esas ${fmtNum(lone.length)} palabras`, run: importLoneWords });
+      }
+    } catch (e) {
+      lines.push(`No se pudo leer la base de Kindle Mate: ${e.message}`);
+      kind = 'warning';
+    }
+  } else if (r.vocab) {
     try {
       const res = readVocabDbDetailed(r.vocab.db.bytes, r.vocab.wal && r.vocab.wal.bytes);
       const entries = res.entries;
