@@ -1128,3 +1128,13 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px s
   .hist-cols { grid-template-columns: 1fr; }
   .hist-row { grid-template-columns: 90px 1fr auto; }
 }
+
+/* Enviar a VocaMaster directamente */
+.vm-send { margin: 12px 0 16px; }
+.vm-send .btn { margin-top: 6px; }
+.vm-send-status { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }
+.vm-send-status.received, .vm-send-status.imported { color: var(--success); font-weight: 600; }
+.vm-send-status.failed { color: var(--accent); }
+.vm-manual { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.vm-manual summary { cursor: pointer; font-size: 13px; color: var(--text-2); font-weight: 500; }
+.vm-manual .steps { margin-top: 10px; }

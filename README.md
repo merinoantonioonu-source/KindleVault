@@ -32,11 +32,17 @@ En UltraMind: **Abrir o importar** y arrastra el archivo, o pega allí el texto 
 
 ## Estudiar el vocabulario en VocaMaster
 
-En **Vocabulario**, pulsa **Enviar a VocaMaster**. Las palabras salen en bloques de hasta 50, separados por idioma, sin repetir (en su forma base: «run» en vez de «ran», si quieres). Cada línea va como `palabra | frase del libro`. Copia un bloque y pégalo en VocaMaster: botón **+** → **Vocabulario** → **✍️ Pegar Texto** → **🚀 Procesar Texto**. La IA de VocaMaster pone la traducción y la definición del sentido que la palabra tiene en esa frase, y guarda la frase del libro como ejemplo.
+En **Vocabulario**, pulsa **Enviar a VocaMaster** y luego **📤 Abrir VocaMaster y enviar**. Se abre VocaMaster (inicia sesión si te lo pide: las palabras esperan) con una vista previa, **📚 Desde KindleVault**, donde:
 
-Al copiar un bloque, sus palabras quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** de la izquierda decide cuáles se ven. Estas marcas viajan con la sincronización.
+- cada palabra dice qué se hará con ella: **Nueva** (su IA crea la ficha con la traducción y la definición del sentido que tiene en la frase del libro, y guarda esa frase como ejemplo), **Ya la tienes · frase nueva** (la frase va a «Más ejemplos» de la que ya tienes) o **Repetida**;
+- puedes corregir la palabra, quitarla del envío y ponerle o quitarle etiquetas (por defecto, el libro y «kindle»), una a una o **varias a la vez**: elige las que quieras (o todas las de un libro) y añade o quita etiquetas, con tus etiquetas de VocaMaster como botones;
+- al pulsar **Añadir a VocaMaster**, aquí quedan marcadas como **Enviada**.
 
-Con **Un bloque por libro**, cada libro sale en sus propios bloques (con su título), para tener en VocaMaster una lista por libro.
+Van en su forma base («run» en vez de «ran», si quieres) y, si marcas **Todas sus frases**, con cada frase en la que buscaste la palabra. Las de otro idioma esperan en VocaMaster hasta que cambies a ese idioma. Si VocaMaster no se abre, **Copiar y pegar a mano** da los bloques de siempre (`palabra | frase`, hasta 50 por bloque) para **+** → **Vocabulario** → **✍️ Pegar Texto**.
+
+Al copiar un bloque, sus palabras también quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** de la izquierda decide cuáles se ven. Estas marcas viajan con la sincronización.
+
+En «Copiar y pegar a mano», **Un bloque por libro** saca cada libro en sus propios bloques (con su título).
 
 **Las que se te resisten.** En **Vocabulario**, el filtro **Solo las que se te resisten** deja las palabras que has buscado dos veces o más (en el mismo libro o en varios), de más a menos búsquedas y con todas sus frases juntas; cada palabra repetida lo indica («Buscada 7 veces en 6 libros»). Son buenas candidatas para VocaMaster. El filtro **Idioma** cuenta, en esta pestaña, el idioma de cada palabra.
 
