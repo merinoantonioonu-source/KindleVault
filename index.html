@@ -241,11 +241,6 @@
       <button class="btn-close" data-close="vocamaster-dialog">×</button>
     </header>
     <div class="dialog-body">
-      <ol class="steps">
-        <li>Pulsa <strong>Copiar</strong> en un bloque.</li>
-        <li>En VocaMaster, con el idioma del bloque elegido, pulsa el botón <strong>+</strong> → <strong>Vocabulario</strong> → <strong>✍️ Pegar Texto</strong>, pega y pulsa <strong>🚀 Procesar Texto</strong>. Su IA pondrá la traducción y la definición, y la frase del libro quedará como ejemplo.</li>
-        <li>Repite con el siguiente bloque.</li>
-      </ol>
       <div id="vm-scope" class="vm-scope hidden">
         <label class="check-item"><input type="radio" name="vm-scope" value="selected" checked> <span id="vm-scope-selected">Solo las palabras que he elegido</span></label>
         <label class="check-item"><input type="radio" name="vm-scope" value="filtered"> <span>Todas las de la lista (con los filtros de la izquierda)</span></label>
@@ -254,10 +249,20 @@
         <label class="check-item"><input type="checkbox" id="vm-base-form" checked> <span>Forma base («run», no «ran»)</span></label>
         <label class="check-item" id="vm-include-sent-row"><input type="checkbox" id="vm-include-sent"> <span>Incluir las ya enviadas</span></label>
         <label class="check-item"><input type="checkbox" id="vm-with-context" checked> <span>Con la frase del libro como ejemplo</span></label>
-        <label class="check-item"><input type="checkbox" id="vm-by-book"> <span>Un bloque por libro (cada libro, su lista)</span></label>
+        <label class="check-item"><input type="checkbox" id="vm-all-sentences"> <span>Todas sus frases (si la buscaste varias veces)</span></label>
       </div>
       <p class="hint" id="vm-hint"></p>
-      <div id="vm-blocks" class="vm-blocks"></div>
+      <div id="vm-send" class="vm-send"></div>
+      <details class="vm-manual">
+        <summary>Copiar y pegar a mano (si VocaMaster no se abre)</summary>
+        <ol class="steps">
+          <li>Pulsa <strong>Copiar</strong> en un bloque.</li>
+          <li>En VocaMaster, con el idioma del bloque elegido, pulsa <strong>+</strong> → <strong>Vocabulario</strong> → <strong>✍️ Pegar Texto</strong>, pega y pulsa <strong>🚀 Procesar Texto</strong>.</li>
+          <li>Repite con el siguiente bloque.</li>
+        </ol>
+        <label class="check-item"><input type="checkbox" id="vm-by-book"> <span>Un bloque por libro (cada libro, su lista)</span></label>
+        <div id="vm-blocks" class="vm-blocks"></div>
+      </details>
     </div>
   </div>
 </div>

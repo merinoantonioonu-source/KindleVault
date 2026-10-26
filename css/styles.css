@@ -1069,7 +1069,15 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px s
    PALABRAS QUE SE RESISTEN · HISTORIAL
    ============================================================ */
 .repeat-filter { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-.v-times { margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--accent); }
+.v-times {
+  margin-top: 4px; padding: 0; font: inherit; font-size: 12px; font-weight: 600;
+  color: var(--accent); background: none; border: none; cursor: pointer; text-align: left;
+}
+.v-times:hover { text-decoration: underline; }
+.v-times-list { list-style: none; margin: 4px 0 0; padding: 6px 10px; font-size: 12px; color: var(--text-2);
+  background: var(--surface-2); border-radius: 4px; }
+.v-times-list li { padding: 1px 0; }
+.v-times-list span { display: inline-block; min-width: 92px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 .main.no-sidebar { grid-template-columns: 1fr; }
 .history { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
@@ -1120,3 +1128,13 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px s
   .hist-cols { grid-template-columns: 1fr; }
   .hist-row { grid-template-columns: 90px 1fr auto; }
 }
+
+/* Enviar a VocaMaster directamente */
+.vm-send { margin: 12px 0 16px; }
+.vm-send .btn { margin-top: 6px; }
+.vm-send-status { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }
+.vm-send-status.received, .vm-send-status.imported { color: var(--success); font-weight: 600; }
+.vm-send-status.failed { color: var(--accent); }
+.vm-manual { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.vm-manual summary { cursor: pointer; font-size: 13px; color: var(--text-2); font-weight: 500; }
+.vm-manual .steps { margin-top: 10px; }

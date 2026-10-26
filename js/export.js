@@ -165,6 +165,35 @@ export function vocamasterBlocks(items, { baseForm = true, includeSent = false, 
   return blocks;
 }
 
+/**
+ * Lo que se envía directamente a VocaMaster: una entrada por palabra (con su
+ * frase más reciente) o, con allSentences, una por cada frase distinta en la
+ * que se buscó. Mismas reglas que los bloques (sin «Me la sé» ni «Ignorar»;
+ * las enviadas, solo si se pide).
+ */
+export function vocamasterItems(items, { baseForm = true, includeSent = false, withContext = true, explicit = false, allSentences = false } = {}) {
+  const out = [];
+  const seen = new Set();
+  for (const v of items) {
+    if (!explicit && (v.status === 'known' || v.status === 'ignored')) continue;
+    if (!explicit && v.status === 'sent' && !includeSent) continue;
+    const term = oneLine(baseForm && v.stem ? v.stem : v.word).replace(/\|/g, '/');
+    if (!term) continue;
+    const lang = String(v.language || '').split('-')[0].toLowerCase();
+    const context = withContext ? oneLine(v.context).replace(/\|/g, '/') : '';
+    const k = `${lang}\u0001${term.toLowerCase()}` + (allSentences ? `\u0001${context.toLowerCase()}` : '');
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const e = { key: v.wkey, term, word: oneLine(v.word) || term };
+    if (context) e.context = context;
+    if (v.book_title) e.book = v.book_title;
+    if (lang) e.language = lang;
+    if (v.looked_up_at) e.lookedUpAt = v.looked_up_at;
+    out.push(e);
+  }
+  return out;
+}
+
 export function vocabToMarkdown(items, o) {
   const lines = [];
   if (o.include_front_matter) lines.push('---', 'source: KindleVault', `generated: ${nowIso()}`, `words: ${items.length}`, '---\n');
