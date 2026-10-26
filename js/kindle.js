@@ -44,7 +44,22 @@ async function walk(dir, parts) {
 async function readHandle(h) {
   if (!h) return null;
   const f = await h.getFile();
-  return { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) };
+  return { name: f.name, modified: f.lastModified, bytes: new Uint8Array(await f.arrayBuffer()) };
+}
+
+/** Lo que hay en la carpeta de vocab.db (nombre, tamaño, fecha), para el informe. */
+async function folderListing(dir, parts) {
+  let cur = dir;
+  for (const p of parts) { cur = await child(cur, p, 'directory'); if (!cur) return null; }
+  const out = [];
+  try {
+    for await (const [name, h] of cur.entries()) {
+      if (h.kind === 'directory') { out.push(`${name}/`); continue; }
+      const f = await h.getFile();
+      out.push(`${name} (${f.size} bytes, ${new Date(f.lastModified).toISOString()})`);
+    }
+  } catch { /* carpeta ilegible */ }
+  return out.sort();
 }
 
 /**
@@ -69,6 +84,7 @@ async function listDeviceBooks(dir, path = '', depth = 0, out = []) {
           if (head) meta = { ...meta, ...Object.fromEntries(Object.entries(head).filter(([, v]) => v)) };
         } catch { /* archivo ilegible: queda el nombre */ }
       }
+      if (meta.dictionary) continue; // los diccionarios no son libros
       const sdr = sdrDirs.get(name.replace(/\.[^.]+$/, '').toLowerCase() + '.sdr');
       const side = sdr ? await readSidecar(sdr) : { annotations: null, sidecarFiles: [] };
       out.push({ file: `${path}${name}`, ...meta, ...side });
@@ -103,7 +119,10 @@ export async function readKindleFolder(dir) {
     folderName: dir.name,
     rootEntries: await rootEntries(dir),
     clippings: await readHandle(clippings),
-    vocab: vocabDb ? { db: await readHandle(vocabDb), wal: await readHandle(vocabWal), shm: !!vocabShm } : null,
+    vocab: vocabDb ? {
+      db: await readHandle(vocabDb), wal: await readHandle(vocabWal), shm: !!vocabShm,
+      folder: (await folderListing(dir, ['system', 'vocabulary'])) || (await folderListing(dir, ['vocabulary'])),
+    } : null,
     deviceBooks: documents ? await listDeviceBooks(documents) : null,
   };
 }
