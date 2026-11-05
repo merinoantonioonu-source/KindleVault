@@ -2,88 +2,108 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#f6f2ea">
+<script>try{var t=localStorage.getItem('kindlevault:theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
 <title>KindleVault</title>
 <meta name="description" content="Subrayados, notas y vocabulario de tu Kindle, en el navegador.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='8' fill='%23ede6d5'/><text x='32' y='42' font-family='Georgia,serif' font-size='26' font-weight='600' text-anchor='middle' fill='%238b3a2f'>KV</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <div class="brand-mark">KV</div>
-    <div>
-      <div class="brand-name">KindleVault</div>
-      <div class="brand-sub" id="stats-line">cargando…</div>
+<div class="app">
+  <!-- Menú lateral (en el móvil, un cajón que se abre con ☰) -->
+  <aside class="rail" id="rail" aria-label="Menú">
+    <div class="brand">
+      <div class="brand-mark">KV</div>
+      <div class="brand-text">
+        <div class="brand-name">KindleVault</div>
+        <div class="brand-sub" id="stats-line">cargando…</div>
+      </div>
     </div>
-  </div>
-  <div class="topbar-right">
-    <button id="sync-pill" class="status-pill sync-pill" title="Sincronización">Sincronización</button>
-    <button id="btn-rescan" class="btn btn-ghost hidden" title="Vuelve a leer el Kindle tal como está ahora: libros nuevos, subrayados y palabras">🔄 Volver a escanear el Kindle</button>
-    <button id="btn-import" class="btn btn-primary">Importar</button>
-  </div>
-</header>
-
-<div id="banner" class="banner hidden"></div>
-
-<nav class="tabs">
-  <button class="tab active" data-tab="highlights">Subrayados y notas</button>
-  <button class="tab" data-tab="vocab">Vocabulario</button>
-  <button class="tab" data-tab="books">Biblioteca</button>
-  <button class="tab" data-tab="history">Historial</button>
-  <button id="btn-toggle-filters" class="tab tab-filters">Filtros</button>
-</nav>
-
-<main class="main">
-  <aside class="sidebar" id="sidebar">
-    <section class="filter-section">
-      <div class="filter-title">Idioma</div>
-      <div id="lang-filters" class="filter-list"></div>
-    </section>
-    <section class="filter-section">
-      <div class="filter-title">Libros</div>
-      <input id="book-search" type="text" placeholder="Filtrar libros…" class="input-sm">
-      <div id="book-filters" class="filter-list scroll"></div>
-      <div class="filter-actions">
-        <button id="btn-select-all" class="chip">Todos</button>
-        <button id="btn-select-none" class="chip">Ninguno</button>
+    <button class="search-trigger" id="btn-search" title="Buscar libros, subrayados y palabras (Ctrl+K)">
+      <i data-icon="search"></i><span>Buscar…</span><kbd>Ctrl K</kbd>
+    </button>
+    <nav class="nav" aria-label="Secciones">
+      <button class="nav-item" data-tab="home"><i data-icon="home"></i><span>Inicio</span></button>
+      <button class="nav-item" data-tab="books"><i data-icon="library"></i><span>Biblioteca</span><span class="nav-count" data-count="books"></span></button>
+      <button class="nav-item" data-tab="highlights"><i data-icon="highlight"></i><span>Subrayados</span><span class="nav-count" data-count="highlights"></span></button>
+      <button class="nav-item" data-tab="vocab"><i data-icon="words"></i><span>Vocabulario</span><span class="nav-count" data-count="vocab"></span></button>
+      <button class="nav-item" data-tab="history"><i data-icon="history"></i><span>Historial</span></button>
+    </nav>
+    <div class="rail-foot">
+      <button id="btn-import" class="btn btn-primary btn-block"><i data-icon="import"></i>Importar</button>
+      <button id="btn-rescan" class="btn btn-ghost btn-block hidden" title="Vuelve a leer el Kindle tal como está ahora: libros nuevos, subrayados y palabras"><i data-icon="refresh"></i>Volver a escanear el Kindle</button>
+      <div class="rail-row">
+        <button id="sync-pill" class="status-pill sync-pill" title="Sincronización">Sincronización</button>
+        <button id="btn-theme" class="icon-btn" title="Tema"></button>
       </div>
-    </section>
-    <section class="filter-section type-section" id="type-section">
-      <div class="filter-title">Tipo</div>
-      <div class="filter-list">
-        <label class="filter-item"><input type="checkbox" class="type-filter" value="highlight" checked><span>Subrayados</span></label>
-        <label class="filter-item"><input type="checkbox" class="type-filter" value="note" checked><span>Notas</span></label>
-        <label class="filter-item"><input type="checkbox" class="type-filter" value="bookmark" checked><span>Marcadores</span></label>
-        <label class="filter-item"><input type="checkbox" class="type-filter" value="empty"><span title="Subrayados sin texto (imágenes, tablas…)">Sin texto</span></label>
-        <label class="filter-item"><input type="checkbox" class="type-filter" value="dropped"><span title="Bloqueados por el límite de Amazon">Bloqueados</span></label>
-        <label class="filter-item"><input type="checkbox" class="type-filter" value="superseded"><span title="Cuando amplías un subrayado, el Kindle guarda también la versión corta. Se ocultan para no verlas repetidas.">Versiones anteriores</span><span class="count" id="superseded-count"></span></label>
-      </div>
-    </section>
-    <section class="filter-section type-section hidden" id="status-section">
-      <div class="filter-title">Estado</div>
-      <div class="filter-list" id="status-filters"></div>
-    </section>
+    </div>
   </aside>
+  <div class="rail-scrim" id="rail-scrim"></div>
 
-  <section class="content">
-    <div class="content-toolbar">
-      <div class="search-wrap">
-        <input id="search" type="search" placeholder="Buscar en el contenido…">
+  <div class="workspace">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="btn-menu" aria-label="Menú"><i data-icon="menu"></i></button>
+      <div class="topbar-title">
+        <button class="crumb hidden" id="btn-back"><i data-icon="back"></i><span id="back-label">Biblioteca</span></button>
+        <h1 id="view-title">Inicio</h1>
       </div>
-      <div id="result-count" class="result-count"></div>
-      <button id="btn-vocamaster" class="btn btn-primary hidden">Enviar a VocaMaster</button>
-      <button id="btn-export" class="btn btn-accent">Exportar</button>
+      <div class="topbar-actions">
+        <button id="btn-vocamaster" class="btn btn-ghost hidden"><i data-icon="send"></i><span>Enviar a VocaMaster</span></button>
+        <button id="btn-export" class="btn btn-ghost hidden"><i data-icon="export"></i><span>Exportar</span></button>
+        <button class="icon-btn only-mobile" id="btn-search-m" aria-label="Buscar"><i data-icon="search"></i></button>
+        <button class="icon-btn icon-btn-primary only-mobile" id="btn-import-m" aria-label="Importar"><i data-icon="plus"></i></button>
+      </div>
+    </header>
+
+    <div id="banner" class="notice hidden" role="status"></div>
+
+    <div class="toolbar hidden" id="toolbar">
+      <label class="search-wrap">
+        <i data-icon="search"></i>
+        <input id="search" type="search" placeholder="Buscar…" autocomplete="off">
+      </label>
+      <div class="filters" id="filters"></div>
+      <div class="toolbar-end">
+        <span id="result-count" class="result-count"></span>
+        <label class="sort-wrap" title="Orden"><i data-icon="sort"></i><select id="sort" class="select-bare" aria-label="Orden"></select></label>
+      </div>
     </div>
     <div id="active-filters" class="active-filters hidden"></div>
     <div id="selection-bar" class="selection-bar hidden"></div>
-    <div id="results" class="results"></div>
-  </section>
-</main>
+
+    <main id="results" class="results"></main>
+  </div>
+
+  <!-- Móvil: pestañas abajo -->
+  <nav class="tabbar" aria-label="Secciones">
+    <button class="tabbar-item" data-tab="home"><i data-icon="home"></i><span>Inicio</span></button>
+    <button class="tabbar-item" data-tab="books"><i data-icon="library"></i><span>Libros</span></button>
+    <button class="tabbar-item" data-tab="highlights"><i data-icon="highlight"></i><span>Subrayados</span></button>
+    <button class="tabbar-item" data-tab="vocab"><i data-icon="words"></i><span>Palabras</span></button>
+    <button class="tabbar-item" data-tab="history"><i data-icon="history"></i><span>Historial</span></button>
+  </nav>
+</div>
+
+<!-- Desplegable de filtros -->
+<div id="popover" class="popover hidden" role="dialog"></div>
+
+<!-- Buscador (Ctrl+K) -->
+<div id="search-dialog" class="dialog-backdrop palette-backdrop hidden">
+  <div class="palette" role="dialog" aria-label="Buscar">
+    <label class="palette-input">
+      <i data-icon="search"></i>
+      <input id="palette-input" type="search" placeholder="Busca un libro, un subrayado o una palabra…" autocomplete="off">
+      <kbd>Esc</kbd>
+    </label>
+    <div id="palette-results" class="palette-results"></div>
+  </div>
+</div>
 
 <!-- Importar con archivos sueltos (Clippings, vocab.db, cuadernos, nube de Amazon) -->
 <input id="kindle-files" type="file" multiple hidden>
@@ -94,7 +114,7 @@
   <div class="dialog dialog-narrow">
     <header class="dialog-header">
       <h2>Sincronización</h2>
-      <button class="btn-close" data-close="sync-dialog">×</button>
+      <button class="btn-close" data-close="sync-dialog" aria-label="Cerrar"><i data-icon="x"></i></button>
     </header>
     <div class="dialog-body" id="sync-body"></div>
   </div>
@@ -102,64 +122,93 @@
 
 <!-- Diálogo: importar -->
 <div id="import-dialog" class="dialog-backdrop hidden">
-  <div class="dialog">
+  <div class="dialog dialog-wide">
     <header class="dialog-header">
-      <h2>Importar</h2>
-      <button class="btn-close" data-close="import-dialog">×</button>
+      <div>
+        <h2>Importar</h2>
+        <p class="dialog-sub">Elige de dónde traer tus subrayados y palabras. Puedes combinar varias fuentes: lo repetido se junta solo.</p>
+      </div>
+      <button class="btn-close" data-close="import-dialog" aria-label="Cerrar"><i data-icon="x"></i></button>
     </header>
     <div class="dialog-body">
-      <section class="import-way">
-        <h3>1 · El Kindle conectado por USB</h3>
-        <p>Subrayados hechos <em>en ese Kindle</em>, palabras buscadas y la lista de libros que tiene.</p>
-        <ol class="steps">
-          <li>Conecta el Kindle al ordenador con el cable USB.</li>
-          <li>Pulsa <strong>Elegir el Kindle</strong> y selecciona la unidad del Kindle (por ejemplo <code>D:</code>), no una carpeta de dentro.</li>
-          <li>Si el navegador pregunta, permite que KindleVault <em>vea</em> los archivos. Solo los lee; nunca escribe en el Kindle.</li>
-        </ol>
-        <div class="dialog-actions-col">
-          <button id="btn-pick-kindle" class="btn btn-primary">Elegir el Kindle</button>
-          <button id="btn-rescan-dialog" class="btn btn-ghost hidden">🔄 Volver a escanear el Kindle de la última vez</button>
-        </div>
-        <p class="hint" id="import-hint">Sin «Elegir el Kindle» (Firefox, Safari, móvil): usa <strong>Elegir archivos</strong> y escoge <code>documents/My Clippings.txt</code> y, si quieres el vocabulario, <code>vocab.db</code> <strong>y</strong> <code>vocab.db-wal</code> (si está) de <code>system/vocabulary</code>, todos a la vez: en <code>vocab.db-wal</code> guarda el Kindle las últimas palabras buscadas. La carpeta <code>system</code> está oculta: activa «Mostrar elementos ocultos» en el Explorador.</p>
-        <details class="hint">
-          <summary>¿Tu Kindle no aparece como unidad (<code>D:</code>, <code>E:</code>…)?</summary>
-          <p>Los Kindle recientes (por ejemplo, el Paperwhite de 2021 en adelante) se conectan como <em>dispositivo</em>: el Explorador los muestra en «Este equipo» como <strong>Kindle → Internal Storage</strong>, pero sin letra, y el navegador no puede abrirlos directamente. Hazlo así:</p>
-          <ol class="steps">
-            <li>En el Explorador, abre <strong>Kindle → Internal Storage → system</strong> y copia la carpeta <code>vocabulary</code> <strong>entera</strong> a tu ordenador (lleva <code>vocab.db</code> y, si existe, <code>vocab.db-wal</code>, con las últimas palabras buscadas). Copia también <code>documents/My Clippings.txt</code>.</li>
-            <li>Arrastra a esta página la carpeta <code>vocabulary</code> y <code>My Clippings.txt</code>.</li>
-          </ol>
-          <p>La copia no se actualiza sola: cuando busques palabras nuevas, vuelve a copiarla. Tras importar, KindleVault dice cuál es la última palabra buscada que ha encontrado, para que veas si está al día.</p>
-        </details>
-      </section>
+      <div class="sources">
+        <section class="source source-main">
+          <div class="source-icon"><i data-icon="kindle"></i></div>
+          <div class="source-body">
+            <h3>Kindle conectado por USB</h3>
+            <p>Lo que subrayas en ese Kindle, las palabras que buscas y la lista de libros que tiene. Solo se lee: nunca se escribe en el Kindle.</p>
+            <div class="source-actions">
+              <button id="btn-pick-kindle" class="btn btn-primary"><i data-icon="folder"></i>Elegir el Kindle</button>
+              <button id="btn-rescan-dialog" class="btn btn-ghost hidden"><i data-icon="refresh"></i>Volver a escanear el de la última vez</button>
+            </div>
+            <details class="more">
+              <summary>Cómo se hace</summary>
+              <ol class="steps">
+                <li>Conecta el Kindle al ordenador con el cable USB.</li>
+                <li>Pulsa <strong>Elegir el Kindle</strong> y selecciona su unidad entera (por ejemplo <code>D:</code>), no una carpeta de dentro.</li>
+                <li>Si el navegador pregunta, permite que KindleVault <em>vea</em> los archivos.</li>
+              </ol>
+              <p id="import-hint">Sin «Elegir el Kindle» (Firefox, Safari, móvil): usa <strong>Elegir archivos</strong> y escoge <code>documents/My Clippings.txt</code> y, para el vocabulario, <code>vocab.db</code> <strong>y</strong> <code>vocab.db-wal</code> (si está) de <code>system/vocabulary</code>, todos a la vez: en <code>vocab.db-wal</code> guarda el Kindle las últimas palabras buscadas. La carpeta <code>system</code> está oculta: activa «Mostrar elementos ocultos» en el Explorador.</p>
+            </details>
+            <details class="more">
+              <summary>¿Tu Kindle no aparece como unidad (<code>D:</code>, <code>E:</code>…)?</summary>
+              <p>Los Kindle recientes (por ejemplo, el Paperwhite de 2021 en adelante) se conectan como <em>dispositivo</em>: el Explorador los muestra en «Este equipo» como <strong>Kindle → Internal Storage</strong>, sin letra, y el navegador no puede abrirlos. Hazlo así:</p>
+              <ol class="steps">
+                <li>En el Explorador, abre <strong>Kindle → Internal Storage → system</strong> y copia la carpeta <code>vocabulary</code> <strong>entera</strong> a tu ordenador (lleva <code>vocab.db</code> y, si existe, <code>vocab.db-wal</code>). Copia también <code>documents/My Clippings.txt</code>.</li>
+                <li>Arrastra a esta página la carpeta <code>vocabulary</code> y <code>My Clippings.txt</code>.</li>
+              </ol>
+              <p>La copia no se actualiza sola: cuando busques palabras nuevas, vuelve a copiarla.</p>
+            </details>
+          </div>
+        </section>
 
-      <section class="import-way">
-        <h3>2 · La app Kindle del ordenador (o del móvil)</h3>
-        <p>La app no deja que otras aplicaciones lean sus datos, pero puede <strong>exportar el cuaderno</strong> de cada libro: subrayados y notas, con sus capítulos.</p>
-        <ol class="steps">
-          <li>Abre el libro en la app Kindle y pulsa el icono del <strong>Cuaderno</strong>.</li>
-          <li>Elige <strong>Exportar cuaderno</strong> (en el móvil se envía por correo) y, si pregunta el estilo de cita, <strong>Ninguno</strong>.</li>
-          <li>Guarda el archivo <code>.html</code> y ábrelo aquí con <strong>Elegir archivos</strong> (puedes elegir varios a la vez).</li>
-        </ol>
-      </section>
+        <section class="source">
+          <div class="source-icon"><i data-icon="cloud"></i></div>
+          <div class="source-body">
+            <h3>Nube de Amazon</h3>
+            <p>Todos tus libros con subrayados, también los hechos en el móvil o en otro Kindle y los que no tienes descargados.</p>
+            <div class="source-actions">
+              <a id="amazon-bookmarklet" class="bookmarklet" href="#" title="Arrástrame a la barra de marcadores"><i data-icon="bookmark"></i>KindleVault: nube de Amazon</a>
+            </div>
+            <details class="more">
+              <summary>Cómo se hace</summary>
+              <ol class="steps">
+                <li>Arrastra el botón de arriba a tu barra de marcadores (si no la ves: <kbd>Ctrl</kbd>+<kbd>Mayús</kbd>+<kbd>B</kbd>).</li>
+                <li>Abre tu cuaderno de Kindle e inicia sesión: <a href="https://read.amazon.com/notebook" target="_blank" rel="noopener">read.amazon.com/notebook</a> (o <a href="https://leer.amazon.es/notebook" target="_blank" rel="noopener">leer.amazon.es/notebook</a>).</li>
+                <li>Pulsa el marcador: lee tus libros uno a uno.</li>
+                <li>Al terminar, pulsa <strong>Llevar a KindleVault</strong> y se importa solo. Si no se abre, <strong>Descargar el archivo</strong> y ábrelo aquí con <strong>Elegir archivos</strong>.</li>
+              </ol>
+              <p>¿Ya tenías el marcador? Vuelve a arrastrar este: el antiguo no tiene «Llevar a KindleVault». Solo lee tus páginas de Amazon con tu sesión.</p>
+            </details>
+          </div>
+        </section>
 
-      <section class="import-way">
-        <h3>3 · La nube de Amazon: todos tus libros, también los no descargados</h3>
-        <p>Amazon guarda los subrayados que haces en cualquier Kindle o app (de los libros comprados en su tienda). Un <strong>marcador</strong> los recoge todos de una vez.</p>
-        <ol class="steps">
-          <li>Arrastra este botón a tu barra de marcadores (si no la ves: <kbd>Ctrl</kbd>+<kbd>Mayús</kbd>+<kbd>B</kbd>):
-            <a id="amazon-bookmarklet" class="bookmarklet" href="#" title="Arrástrame a la barra de marcadores">📚 KindleVault: nube de Amazon</a></li>
-          <li>Abre tu cuaderno de Kindle e inicia sesión: <a href="https://read.amazon.com/notebook" target="_blank" rel="noopener">read.amazon.com/notebook</a> (o <a href="https://leer.amazon.es/notebook" target="_blank" rel="noopener">leer.amazon.es/notebook</a> si compras en amazon.es).</li>
-          <li>Pulsa el marcador. Lee tus libros uno a uno (tarda un poco si tienes muchos).</li>
-          <li>Al terminar, pulsa <strong>Llevar a KindleVault</strong>: se abre KindleVault y lo importa solo. Si no se abre, pulsa <strong>Descargar el archivo</strong> y abre aquí el <code>kindlevault-amazon-….json</code> (en tu carpeta de Descargas) con <strong>Elegir archivos</strong>, o arrástralo a esta página.</li>
-        </ol>
-        <p class="hint">¿Ya tenías el marcador? Bórralo y vuelve a arrastrar este: el antiguo no tiene el botón «Llevar a KindleVault». El marcador solo lee tus páginas de Amazon con tu sesión y no envía nada a ningún otro sitio. Las búsquedas de vocabulario no están en la nube: solo en el Kindle (<code>vocab.db</code>), que las conserva aunque borres el libro.</p>
-      </section>
+        <section class="source">
+          <div class="source-icon"><i data-icon="laptop"></i></div>
+          <div class="source-body">
+            <h3>App Kindle (ordenador o móvil)</h3>
+            <p>El cuaderno de un libro, con sus capítulos: en la app, <strong>Cuaderno → Exportar cuaderno</strong> (estilo de cita «Ninguno») y abre aquí el <code>.html</code>.</p>
+          </div>
+        </section>
 
-      <div class="dialog-actions-col">
-        <button id="btn-pick-files" class="btn btn-ghost">Elegir archivos…</button>
+        <section class="source">
+          <div class="source-icon"><i data-icon="database"></i></div>
+          <div class="source-body">
+            <h3>Kindle Mate y otros archivos</h3>
+            <p>Lo que exportaste de Kindle Mate (<code>.db</code> y <code>.txt</code>), un <code>My Clippings.txt</code>, un <code>vocab.db</code> o tu archivo de sincronización.</p>
+          </div>
+        </section>
       </div>
-      <p class="hint">También puedes arrastrar los archivos, o una carpeta copiada del Kindle, a cualquier parte de esta página.</p>
-      <p class="hint">¿Usabas <strong>Kindle Mate</strong>? Guarda también lo que el Kindle ya ha borrado. Abre aquí con <strong>Elegir archivos</strong> su exportación del vocabulario (<code>.db</code>) y de los subrayados (<code>.txt</code>): cada búsqueda y cada subrayado van a su libro, y lo que ya estaba no se repite.</p>
+
+      <div class="dropzone" id="dropzone">
+        <i data-icon="import"></i>
+        <div>
+          <strong>Suelta aquí archivos o una carpeta</strong>
+          <span>o</span>
+          <button id="btn-pick-files" class="btn btn-ghost btn-sm"><i data-icon="file"></i>Elegir archivos…</button>
+        </div>
+        <span class="dropzone-hint">Puedes elegir varios a la vez. También puedes soltarlos en cualquier parte de la página.</span>
+      </div>
     </div>
   </div>
 </div>
@@ -169,7 +218,7 @@
   <div class="dialog">
     <header class="dialog-header">
       <h2 id="export-title">Exportar</h2>
-      <button class="btn-close" data-close="export-dialog">×</button>
+      <button class="btn-close" data-close="export-dialog" aria-label="Cerrar"><i data-icon="x"></i></button>
     </header>
     <div class="dialog-body">
       <div class="row">
@@ -239,12 +288,12 @@
   <div class="dialog">
     <header class="dialog-header">
       <h2>Enviar a VocaMaster</h2>
-      <button class="btn-close" data-close="vocamaster-dialog">×</button>
+      <button class="btn-close" data-close="vocamaster-dialog" aria-label="Cerrar"><i data-icon="x"></i></button>
     </header>
     <div class="dialog-body">
       <div id="vm-scope" class="vm-scope hidden">
         <label class="check-item"><input type="radio" name="vm-scope" value="selected" checked> <span id="vm-scope-selected">Solo las palabras que he elegido</span></label>
-        <label class="check-item"><input type="radio" name="vm-scope" value="filtered"> <span>Todas las de la lista (con los filtros de la izquierda)</span></label>
+        <label class="check-item"><input type="radio" name="vm-scope" value="filtered"> <span>Todas las de la lista (con los filtros que tengas puestos)</span></label>
       </div>
       <div class="opt-grid vm-options">
         <label class="check-item"><input type="checkbox" id="vm-base-form" checked> <span>Forma base («run», no «ran»)</span></label>

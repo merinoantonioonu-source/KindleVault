@@ -6,12 +6,25 @@ Subrayados, notas, marcadores y vocabulario de tu Kindle, en una web que se usa 
 
 Funciona mejor en **Chrome o Edge de escritorio**, que permiten leer el Kindle directamente y sincronizar con un archivo. En otros navegadores (Firefox, Safari, móvil) se pueden importar los archivos a mano y consultar los datos, pero no hay sincronización automática.
 
+## La app de un vistazo
+
+- **Inicio**: cifras de tu biblioteca, **un subrayado para hoy** (con «Otro» para cambiarlo), los libros leídos hace poco, tus palabras recientes y el estado de tus datos (Kindle, sincronización).
+- **Biblioteca**: tus libros con su portada (si Open Library no la tiene, se dibuja una con el título y el autor). Se filtran (en el Kindle, sin descargar, con subrayados, con palabras), se ordenan y se buscan por título o autor.
+- **La página de cada libro**: sus subrayados y sus palabras en dos pestañas, con un buscador dentro del libro y los botones **Abrir en UltraMind**, **Enviar palabras a VocaMaster**, **Copiar subrayados** y **Exportar…** solo para ese libro.
+- **Subrayados** y **Vocabulario**: listas con filtros desplegables (libro, idioma, tipo o estado, «Se te resisten»), los filtros activos como píldoras que se quitan con un clic, y orden (por libro, más recientes, más antiguos, más subrayados…). Al pulsar el libro de un subrayado o de una palabra se abre su página.
+- **Historial**: tus lecturas en el tiempo.
+- **Buscador** (botón **Buscar** o **Ctrl+K**): libros, subrayados y palabras a la vez; con las flechas y **Intro** se abre el resultado. La tecla **/** salta al buscador de la lista.
+- **Tema** claro, oscuro o automático (el botón del sol/luna, abajo en la barra lateral); se recuerda.
+- En el **móvil**, las secciones van en una barra abajo y el resto (Importar, sincronización, tema) en el menú **☰**.
+
+Tras cada importación sale un aviso breve con lo que ha llegado (+subrayados, +palabras, libros); el detalle completo queda plegado en **Ver detalles**.
+
 ## Cómo se usa
 
-Pulsa **Importar**. Hay tres vías, que se pueden combinar (lo repetido se junta solo):
+Pulsa **Importar** (en la barra lateral, o en **Inicio** si aún no hay nada). Hay tres vías, que se pueden combinar (lo repetido se junta solo):
 
-1. **El Kindle por USB.** Conéctalo, pulsa **Elegir el Kindle** y selecciona su unidad (por ejemplo `D:`). La app lee `documents/My Clippings.txt` (lo que subrayas *en ese Kindle*), `system/vocabulary/vocab.db` (las palabras que buscas) y la **lista de libros** que hay en el Kindle. Solo lee: nunca escribe en él.
-2. **La app Kindle del ordenador o del móvil.** No deja que otras aplicaciones lean sus datos, pero puede **exportar el cuaderno** de cada libro (Cuaderno → Exportar cuaderno, estilo de cita «Ninguno»). Ese `.html` se abre con **Elegir archivos**, varios a la vez.
+1. **El Kindle por USB.** Conéctalo, pulsa **Elegir el Kindle** (la primera tarjeta de la ventana Importar) y selecciona su unidad (por ejemplo `D:`). La app lee `documents/My Clippings.txt` (lo que subrayas *en ese Kindle*), `system/vocabulary/vocab.db` (las palabras que buscas) y la **lista de libros** que hay en el Kindle. Solo lee: nunca escribe en él.
+2. **La app Kindle del ordenador o del móvil.** No deja que otras aplicaciones lean sus datos, pero puede **exportar el cuaderno** de cada libro (Cuaderno → Exportar cuaderno, estilo de cita «Ninguno»). Ese `.html` se abre con **Elegir archivos** (abajo en la ventana Importar), varios a la vez.
 3. **La nube de Amazon** (todos tus libros con subrayados, también los no descargados): arrastra el botón **📚 KindleVault: nube de Amazon** de la ventana Importar a la barra de marcadores, abre tu cuaderno (`read.amazon.com/notebook` o `leer.amazon.es/notebook`) y púlsalo. Al terminar, pulsa **Llevar a KindleVault**: se abre KindleVault y lo importa solo. Si el navegador no lo deja, **Descargar el archivo** guarda un `kindlevault-amazon-….json` (en Descargas) que se abre con **Elegir archivos** o se arrastra a la página. Solo lee tus páginas de Amazon con tu sesión y solo se lo pasa a KindleVault. Si ya tenías el marcador de antes, vuelve a arrastrarlo: el antiguo no tiene ese botón.
 
 Los archivos, o una carpeta copiada del Kindle, también se pueden arrastrar a cualquier parte de la página.
@@ -20,21 +33,21 @@ Los archivos, o una carpeta copiada del Kindle, también se pueden arrastrar a c
 
 **¿El Kindle no sale como unidad (`D:`, `E:`…)?** Los Kindle recientes (por ejemplo, el Paperwhite de 2021 en adelante) se conectan como *dispositivo*: el Explorador los muestra como **Kindle → Internal Storage**, sin letra, y el navegador no puede abrirlos. Copia al ordenador la carpeta `system/vocabulary` **entera** y `documents/My Clippings.txt`, y arrástralos a la página. La carpeta entera importa: el Kindle guarda primero las palabras que buscas en `vocab.db-wal` y tarda en pasarlas a `vocab.db`, así que con `vocab.db` solo faltarían las más recientes (KindleVault avisa si eliges `vocab.db` sin su `-wal`). Tras cada importación dice cuál es la **última palabra buscada** que ha leído, para que se vea si los datos están al día.
 
-**Volver a escanear.** Si has descargado un libro, subrayado o buscado palabras desde la última vez, pulsa **🔄 Volver a escanear el Kindle** (arriba): vuelve a leer el Kindle tal como está ahora (el de la última vez, sin volver a elegirlo si el navegador lo permite) y dice qué libros han llegado o se han ido. Lo que ya estaba no se duplica, y si algo estaba en el libro equivocado se corrige.
+**Volver a escanear.** Si has descargado un libro, subrayado o buscado palabras desde la última vez, pulsa **Volver a escanear el Kindle** (en la barra lateral o en **Inicio**): vuelve a leer el Kindle tal como está ahora (el de la última vez, sin volver a elegirlo si el navegador lo permite) y dice qué libros han llegado o se han ido. Lo que ya estaba no se duplica, y si algo estaba en el libro equivocado se corrige.
 
 **¿Por qué faltan libros o subrayados?** `My Clippings.txt` solo guarda lo que subrayas en ese mismo Kindle; lo subrayado en el móvil, en el ordenador o en otro Kindle está en la nube de Amazon (vía 3). Cuando descargas en el Kindle un libro que subrayaste en otro aparato, el Kindle recibe esos subrayados y los guarda en la carpeta de datos del libro (`.sdr`), **sin su texto** y sin escribirlos en `My Clippings.txt`: KindleVault los cuenta y avisa («El Kindle tiene 37: faltan 32»), y su texto se trae con la vía 3. Las palabras buscadas solo están en el Kindle, que las conserva aunque borres el libro. En **Biblioteca** se ve qué libros están **en el Kindle** y cuáles tienen subrayados pero **no están descargados**.
 
 ## Llevar los subrayados a UltraMind (mapa mental)
 
-En **Subrayados y notas**, pulsa **Exportar** y elige el formato **UltraMind — mapa mental**. Sale **un mapa por libro**: el título es el tema central y cada subrayado, una rama. No lleva ubicación, fecha ni autor; solo las notas que escribiste tú en el Kindle, guardadas en la nota de su subrayado. Con varios libros se descarga un archivo por libro.
+En **Subrayados**, pulsa **Exportar** (arriba a la derecha) y elige el formato **UltraMind — mapa mental**. Sale **un mapa por libro**: el título es el tema central y cada subrayado, una rama. No lleva ubicación, fecha ni autor; solo las notas que escribiste tú en el Kindle, guardadas en la nota de su subrayado. Con varios libros se descarga un archivo por libro.
 
-Cada libro tiene su botón **🧠 Abrir en UltraMind**: abre UltraMind y crea allí el mapa, sin descargar nada (el mapa va en la dirección, detrás de `#mapa=`, y no sale del navegador; los mapas siguientes llegan a la misma pestaña). Hace falta la versión de UltraMind que los recibe. La dirección de UltraMind se cambia en **Dirección de UltraMind**, debajo de la lista.
+En la página de cada libro está el botón **Abrir en UltraMind** (también en la lista de Exportar → UltraMind): abre UltraMind y crea allí el mapa, sin descargar nada (el mapa va en la dirección, detrás de `#mapa=`, y no sale del navegador; los mapas siguientes llegan a la misma pestaña). Hace falta la versión de UltraMind que los recibe. La dirección de UltraMind se cambia en **Dirección de UltraMind**, debajo de la lista.
 
 También se puede descargar: en UltraMind, **Abrir o importar** y arrastra el archivo, o pega allí el texto (botón **Copiar**, con un solo libro filtrado) y pulsa **Importar el texto**.
 
 ## Estudiar el vocabulario en VocaMaster
 
-En **Vocabulario**, pulsa **Enviar a VocaMaster** y luego **📤 Abrir VocaMaster y enviar**. Se abre VocaMaster (inicia sesión si te lo pide: las palabras esperan) con una vista previa, **📚 Desde KindleVault**, donde:
+En **Vocabulario** (o en la página de un libro, solo con sus palabras), pulsa **Enviar a VocaMaster** y luego **📤 Abrir VocaMaster y enviar**. Se abre VocaMaster (inicia sesión si te lo pide: las palabras esperan) con una vista previa, **📚 Desde KindleVault**, donde:
 
 - cada palabra dice qué se hará con ella: **Nueva** (su IA crea la ficha con la traducción y la definición del sentido que tiene en la frase del libro, y guarda esa frase como ejemplo), **Ya la tienes · frase nueva** (la frase va a «Más ejemplos» de la que ya tienes) o **Repetida**;
 - puedes corregir la palabra, quitarla del envío y ponerle o quitarle etiquetas (por defecto, el libro y «kindle»), una a una o **varias a la vez**: elige las que quieras (o todas las de un libro) y añade o quita etiquetas, con tus etiquetas de VocaMaster como botones;
@@ -42,17 +55,17 @@ En **Vocabulario**, pulsa **Enviar a VocaMaster** y luego **📤 Abrir VocaMaste
 
 Van en su forma base («run» en vez de «ran», si quieres) y, si marcas **Todas sus frases**, con cada frase en la que buscaste la palabra. Las de otro idioma esperan en VocaMaster hasta que cambies a ese idioma. Si VocaMaster no se abre, **Copiar y pegar a mano** da los bloques de siempre (`palabra | frase`, hasta 50 por bloque) para **+** → **Vocabulario** → **✍️ Pegar Texto**.
 
-Al copiar un bloque, sus palabras también quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** de la izquierda decide cuáles se ven. Estas marcas viajan con la sincronización.
+Al copiar un bloque, sus palabras también quedan marcadas como **Enviada**, para no mandarlas otra vez. Cada palabra se puede marcar también como **Me la sé** o **Ignorar** (las que el Kindle ya da por aprendidas entran como «Me la sé»), y el filtro **Estado** decide cuáles se ven. En cada palabra, al pasar el ratón, salen los botones para marcarla (o quitarle la marca). Estas marcas viajan con la sincronización.
 
 En «Copiar y pegar a mano», **Un bloque por libro** saca cada libro en sus propios bloques (con su título).
 
-**Las que se te resisten.** En **Vocabulario**, el filtro **Solo las que se te resisten** deja las palabras que has buscado dos veces o más (en el mismo libro o en varios), de más a menos búsquedas y con todas sus frases juntas; cada palabra repetida lo indica («Buscada 7 veces en 6 libros»). Son buenas candidatas para VocaMaster. El filtro **Idioma** cuenta, en esta pestaña, el idioma de cada palabra.
+**Las que se te resisten.** En **Vocabulario**, el filtro **Se te resisten** deja las palabras que has buscado dos veces o más (en el mismo libro o en varios), de más a menos búsquedas y con todas sus frases juntas; cada palabra repetida lo indica («Buscada 7 veces en 6 libros»). Son buenas candidatas para VocaMaster. El filtro **Idioma** cuenta, en esta pestaña, el idioma de cada palabra.
 
-Para mandar solo **palabras concretas**, marca su casilla en la lista (Mayús+clic elige un tramo) y pulsa **Enviar a VocaMaster** en la barra que aparece encima.
+Para mandar solo **palabras concretas**, marca su casilla en la lista (Mayús+clic elige un tramo) y pulsa **Enviar a VocaMaster** en la barra que aparece encima (con **Me las sé** o **Ignorar** se marcan todas de una vez).
 
 ## Historial de lectura
 
-La pestaña **Historial** saca de las fechas de tus búsquedas y subrayados: cuántos hay por año, los idiomas de tus palabras, los libros con más palabras buscadas, las palabras que más se te resisten y una **línea de tiempo** con cuándo leíste cada libro. Todo se puede pulsar: un libro abre sus subrayados o sus palabras; una palabra, todas sus frases.
+La pestaña **Historial** saca de las fechas de tus búsquedas y subrayados: cuántos hay por año, los idiomas de tus palabras, los libros con más palabras buscadas, las palabras que más se te resisten y una **línea de tiempo** con cuándo leíste cada libro. Todo se puede pulsar: un libro abre su página; una palabra, todas sus frases.
 
 ## Escuchar y traducir
 
@@ -61,11 +74,11 @@ En cada palabra, frase y subrayado de otro idioma hay **🔊** (lo lee la voz de
 ## Notas y subrayados ampliados
 
 - Cada nota que escribes en el Kindle aparece **dentro de su subrayado** (el Kindle las guarda por separado).
-- Si amplías un subrayado, el Kindle guarda también la versión corta. KindleVault la oculta para no verla repetida; se puede ver con el filtro **Versiones anteriores**.
+- Si amplías un subrayado, el Kindle guarda también la versión corta. KindleVault la oculta para no verla repetida; se puede ver con el filtro **Tipo → Versiones anteriores**.
 
 ## Sincronización entre ordenadores
 
-Pulsa la píldora de sincronización (arriba a la derecha):
+Pulsa la píldora de sincronización (abajo en la barra lateral; en el móvil, en el menú ☰):
 
 - **En el primer ordenador:** *Crear archivo de sincronización* y guárdalo en una carpeta que se sincronice sola (OneDrive, Dropbox…).
 - **En los demás:** *Vincular un archivo existente* y elige ese mismo archivo.
@@ -87,8 +100,8 @@ Este repositorio solo contiene el código: tus subrayados no se suben a GitHub n
 |---|---|
 | Subrayados y notas | Sí |
 | Marcadores de página | Sí |
-| Sin texto (imágenes, tablas…) | No (filtro "Sin texto") |
-| Bloqueados por el límite de recortes de Amazon | No (filtro "Bloqueados") |
+| Sin texto (imágenes, tablas…) | No (filtro Tipo → "Sin texto") |
+| Bloqueados por el límite de recortes de Amazon | No (filtro Tipo → "Bloqueados") |
 
 Los textos bloqueados por Amazon no se pueden recuperar: el Kindle no los escribe en `My Clippings.txt`.
 
@@ -96,8 +109,10 @@ Los textos bloqueados por Amazon no se pueden recuperar: el Kindle no los escrib
 
 ```
 index.html          Página
-css/styles.css      Estilos (tema papel, modo oscuro automático, móvil)
-js/app.js           Interfaz
+css/styles.css      Estilos (tema papel, claro/oscuro/automático, móvil)
+js/app.js           Interfaz (Inicio, Biblioteca, página del libro, listas, buscador)
+js/icons.js         Iconos (SVG en línea)
+js/bookcover.js     Portadas dibujadas con el título y el autor
 js/parser.js        Lectura de My Clippings.txt y vocab.db
 js/sqlite-reader.js Lector de SQLite propio (sin dependencias)
 js/store.js         Biblioteca local en IndexedDB y combinación de datos
