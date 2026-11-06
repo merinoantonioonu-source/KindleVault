@@ -25,11 +25,25 @@ function signature(books, highlights, vocab, wordStatus = [], device = null) {
   return `${books.length}|${highlights.length}|${vocab.length}|${covers}|${langs}|${asins}|${statuses}|${device ? device.scannedAt : ''}|${moved}`;
 }
 
+/**
+ * Un turno para los cruces: nunca van dos a la vez sobre la misma biblioteca
+ * (el del archivo y el de la sincronización con un código lo comparten).
+ */
+export function crearCerrojo() {
+  let cola = Promise.resolve();
+  return fn => {
+    const turno = cola.then(() => fn());
+    cola = turno.catch(() => undefined);
+    return turno;
+  };
+}
+
 export class SyncManager {
-  constructor(library, { onStatus = () => {}, onMerged = () => {} } = {}) {
+  constructor(library, { onStatus = () => {}, onMerged = () => {}, cerrojo = fn => fn() } = {}) {
     this.library = library;
     this.onStatus = onStatus;
     this.onMerged = onMerged;
+    this.cerrojo = cerrojo;
     this.handle = null;
     this.meta = { name: null, lastSync: null };
     this.state = syncSupported ? 'none' : 'unsupported';
@@ -94,14 +108,23 @@ export class SyncManager {
 
   async syncNow({ interactive = false } = {}) {
     if (!this.handle) return { ok: false };
-    if (this._busy) { await this._busy; }
-    this._busy = this._doSync(interactive).finally(() => { this._busy = null; });
+    // El permiso, antes de esperar turno: el navegador solo lo pide justo después de un clic.
+    if (interactive) {
+      try {
+        if ((await this.handle.queryPermission({ mode: 'readwrite' })) !== 'granted') await this.handle.requestPermission({ mode: 'readwrite' });
+      } catch { /* se verá al cruzar */ }
+    }
+    while (this._busy) await this._busy.catch(() => undefined);
+    this._busy = this.cerrojo(() => this._doSync(interactive)).finally(() => { this._busy = null; });
     return this._busy;
   }
 
   async _doSync(interactive) {
+    if (!this.handle) return { ok: false };
     let perm = await this.handle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted' && interactive) perm = await this.handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted' && interactive) {
+      try { perm = await this.handle.requestPermission({ mode: 'readwrite' }); } catch { /* sin un clic reciente */ }
+    }
     if (perm !== 'granted') { this._set('needs-permission'); return { ok: false, needsPermission: true }; }
 
     this._set('syncing');
