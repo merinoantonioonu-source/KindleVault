@@ -4,7 +4,7 @@ Subrayados, notas, marcadores y vocabulario de tu Kindle, en una web que se usa 
 
 **Abrir la app:** https://merinoantonioonu-source.github.io/KindleVault/
 
-Funciona mejor en **Chrome o Edge de escritorio**, que permiten leer el Kindle directamente y sincronizar con un archivo. En otros navegadores (Firefox, Safari, móvil) se pueden importar los archivos a mano y consultar los datos, pero no hay sincronización automática.
+En el ordenador funciona mejor en **Chrome o Edge**, que permiten leer el Kindle directamente. En el **móvil** (y en cualquier navegador) tienes la misma biblioteca sincronizando **con un código**: ver [Usarlo en el móvil](#usarlo-en-el-móvil).
 
 ## La app de un vistazo
 
@@ -15,7 +15,7 @@ Funciona mejor en **Chrome o Edge de escritorio**, que permiten leer el Kindle d
 - **Historial**: tus lecturas en el tiempo.
 - **Buscador** (botón **Buscar** o **Ctrl+K**): libros, subrayados y palabras a la vez; con las flechas y **Intro** se abre el resultado. La tecla **/** salta al buscador de la lista.
 - **Tema** claro, oscuro o automático (el botón del sol/luna, abajo en la barra lateral); se recuerda.
-- En el **móvil**, las secciones van en una barra abajo y el resto (Importar, sincronización, tema) en el menú **☰**.
+- En el **móvil**, las secciones van en una barra abajo y el resto (Importar, sincronización, tema) en el menú **☰**. Los botones tienen el tamaño del dedo y para elegir varias palabras de golpe se **mantiene pulsada** una casilla.
 
 Tras cada importación sale un aviso breve con lo que ha llegado (+subrayados, +palabras, libros); el detalle completo queda plegado en **Ver detalles**.
 
@@ -76,23 +76,40 @@ En cada palabra, frase y subrayado de otro idioma hay **🔊** (lo lee la voz de
 - Cada nota que escribes en el Kindle aparece **dentro de su subrayado** (el Kindle las guarda por separado).
 - Si amplías un subrayado, el Kindle guarda también la versión corta. KindleVault la oculta para no verla repetida; se puede ver con el filtro **Tipo → Versiones anteriores**.
 
-## Sincronización entre ordenadores
+## Usarlo en el móvil
 
-Pulsa la píldora de sincronización (abajo en la barra lateral; en el móvil, en el menú ☰):
+1. En el **ordenador**, pulsa la píldora de sincronización (abajo en la barra lateral) → **Con un código** → **Crear código**. Sale un código de 16 cifras (**Ver el código** lo vuelve a enseñar cuando quieras).
+2. En el **móvil**, abre https://merinoantonioonu-source.github.io/KindleVault/ y pulsa **Ya lo uso en el ordenador** (o, si ya tienes datos, **☰** → píldora de sincronización → **Tengo un código**). Escribe el código una vez y pulsa **Vincular**: tu biblioteca llega en unos segundos.
+3. Para tenerlo como una app más: en Chrome, **⋮ → Añadir a pantalla de inicio** (o **Instalar aplicación**); en el iPhone, **Compartir → Añadir a pantalla de inicio**.
 
-- **En el primer ordenador:** *Crear archivo de sincronización* y guárdalo en una carpeta que se sincronice sola (OneDrive, Dropbox…).
-- **En los demás:** *Vincular un archivo existente* y elige ese mismo archivo.
+Desde entonces los dos se sincronizan solos: cada uno sube sus cambios a los pocos segundos (marcar palabras, enviarlas a VocaMaster, importar…) y trae los del otro al abrir KindleVault, al volver a la página y cada pocos minutos; cuando llega algo, sale un aviso. Sin conexión no pasa nada: lo pendiente sale al volver la red. En el móvil puedes leer y buscar tus subrayados, marcar palabras (**✓** Me la sé, **⊘** Ignorar), enviarlas a VocaMaster, abrir un libro en UltraMind, copiar, escuchar y traducir. El Kindle se sigue conectando al ordenador; lo que importes allí llega solo al móvil.
 
-A partir de ahí se sincroniza solo: al abrir la web, al volver a ella y tras cada importación. Por seguridad, Chrome pide **un clic** para usar el archivo en cada sesión nueva del navegador; la app te lo pregunta con un aviso.
+## Sincronización
 
-La sincronización **combina** los datos: nunca borra nada y nunca sobrescribe un archivo que no ha podido leer.
+En la píldora de sincronización (abajo en la barra lateral; en el móvil, en el menú ☰) hay dos formas, que se pueden usar a la vez (lo que llega por una sale por la otra):
+
+**Con un código** (móvil y ordenadores, cualquier navegador). En un equipo, **Crear código**; en los demás, **Tengo un código** y escribirlo una vez. Los datos se **cifran con el código** antes de salir del equipo (AES-256; la clave sale del código con PBKDF2) y esperan en una base de datos de Firebase (la misma Realtime Database que usan UltraMind y RepArena, en huecos propios de KindleVault), que solo ve algo ilegible y no deja listar nada: sin el código nadie puede encontrarlos ni leerlos. Guárdalo como una contraseña. **Desvincular** deja los datos en ese equipo y en la nube; para volver, se escribe el mismo código.
+
+Para **ocupar poco** en esa base de datos (y bajar poco por la red):
+
+- todo va **comprimido** y por columnas (sin repetir los nombres de los campos ni lo que se puede volver a sacar, como el título del libro en cada palabra): una biblioteca de 85 libros, 1.584 subrayados y 2.624 palabras pasa de 1,95 MB a unos **590 KB**;
+- se guarda **en piezas**: el catálogo de libros, las marcas de las palabras y los subrayados y palabras repartidos en 64 cajones según el libro. Al cambiar algo solo se sube la pieza afectada (marcar 5 palabras: ~2 KB; nuevas palabras en un libro: la pieza de ese libro) y el otro equipo solo baja lo que ha cambiado;
+- para saber si hay novedades basta con leer una ficha de unos pocos bytes;
+- las piezas viejas se **borran solas** a los 10 minutos (también las que quedasen a medias si se cierra la página mientras sube algo).
+
+La ventana dice cuánto ocupa tu biblioteca en la nube.
+
+**Con un archivo** (entre ordenadores, Chrome o Edge). **Crear archivo** en el primer ordenador y guardarlo en una carpeta que se sincronice sola (OneDrive, Dropbox…); en los demás, **Vincular un archivo** y elegir ese mismo archivo. Se sincroniza solo al abrir la web, al volver a ella y tras cada cambio. Por seguridad, Chrome pide **un clic** para usar el archivo en cada sesión nueva del navegador; la app te lo pregunta con un aviso.
+
+Las dos **combinan** los datos: nunca borran nada (los subrayados y palabras de todos los equipos se suman; de las marcas de una palabra vale la más reciente) y nunca sobrescriben algo que no han podido leer.
 
 ## Dónde están tus datos
 
-- En el almacenamiento de tu navegador (IndexedDB), en cada ordenador.
+- En el almacenamiento de tu navegador (IndexedDB), en cada equipo.
 - En tu archivo de sincronización, si lo usas.
+- Cifrados con tu código en la base de datos de Firebase, si sincronizas con un código.
 
-Este repositorio solo contiene el código: tus subrayados no se suben a GitHub ni a ningún servidor. Las únicas peticiones externas son las de las portadas (a Open Library) y las fuentes tipográficas (Google Fonts); y, solo si tú lo pulsas, abrir el Traductor de Google con el texto a traducir (en los navegadores sin traductor propio).
+Este repositorio solo contiene el código: tus subrayados no se suben a GitHub. Las únicas peticiones externas son las de las portadas (a Open Library), las fuentes tipográficas (Google Fonts) y, si sincronizas con un código, la base de datos de Firebase (con tus datos ya cifrados); y, solo si tú lo pulsas, abrir el Traductor de Google con el texto a traducir (en los navegadores sin traductor propio).
 
 ## Qué se importa
 
@@ -117,6 +134,8 @@ js/parser.js        Lectura de My Clippings.txt y vocab.db
 js/sqlite-reader.js Lector de SQLite propio (sin dependencias)
 js/store.js         Biblioteca local en IndexedDB y combinación de datos
 js/sync.js          Archivo de sincronización
+js/nube.js          Sincronizar con un código: cifrado, piezas, cajones y cómo se juntan
+js/nubesync.js      Sincronizar con un código: hablar con Firebase y cuándo cruzar
 js/kindle.js        Acceso a la unidad del Kindle
 js/covers.js        Portadas de Open Library
 js/export.js        Exportación (UltraMind, Markdown, TXT, CSV, JSON) y bloques para VocaMaster
@@ -126,6 +145,8 @@ js/bookmeta.js      Título y ASIN de los libros del Kindle (nombre de archivo y
 js/sidecar.js       Recuento de anotaciones de las carpetas .sdr del Kindle
 js/speech.js        Pronunciación con las voces del navegador
 js/translate.js     Traducción con el traductor del navegador
+manifest.webmanifest, icons/   Para instalarla en la pantalla de inicio del móvil
+tests/              Pruebas de la sincronización con un código
 ```
 
-No necesita compilación: GitHub Pages sirve los archivos tal cual. Para probarla en local, abre un servidor en la carpeta (por ejemplo `python3 -m http.server`) y entra en `http://localhost:8000`.
+No necesita compilación: GitHub Pages sirve los archivos tal cual. Para probarla en local, abre un servidor en la carpeta (por ejemplo `python3 -m http.server`) y entra en `http://localhost:8000`. Las pruebas solo necesitan Node 20 o más nuevo: `node --test tests/*.test.mjs`.

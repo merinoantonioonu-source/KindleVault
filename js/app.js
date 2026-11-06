@@ -1,7 +1,9 @@
 import { Library, wordKey as wordKeyOf } from './store.js';
 import { parseClippings, readVocabDbDetailed, isKindleMateDb, readKindleMateDb } from './parser.js';
 import { parseNotebookHtml, parseAmazonExport } from './notebook.js';
-import { SyncManager, syncSupported } from './sync.js';
+import { SyncManager, crearCerrojo } from './sync.js';
+import { NubeSync } from './nubesync.js';
+import { formatearCodigo, limpiarCodigo, codigoValido, LARGO_CODIGO, queEquipo } from './nube.js';
 import { pickKindleFolder, readKindleFiles, readKindleFolder, folderAccessSupported, rescanSavedKindle, hasSavedKindle } from './kindle.js';
 import { findCover } from './covers.js';
 import { buildExport, PRESETS, DEFAULT_OPTIONS, vocamasterBlocks, vocamasterItems, ultramindMaps } from './export.js';
@@ -12,6 +14,10 @@ import { icon, hydrateIcons } from './icons.js';
 import { coverHtml, generatedCover, coverColors, shortTitle, displayAuthor } from './bookcover.js';
 
 const $ = sel => document.querySelector(sel);
+/** En el móvil (no se puede conectar el Kindle; lo normal es traer los datos del ordenador con un código). */
+const enMovil = queEquipo() === 'el móvil';
+/** Pantalla táctil (sin ratón): sin Mayús+clic ni botones que aparezcan al pasar el ratón. */
+const tactil = () => matchMedia('(pointer: coarse)').matches;
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 
 const state = {
@@ -38,6 +44,9 @@ const state = {
 
 let lib;
 let sync;
+let nube; // sincronización con un código (móvil y ordenador)
+/** Lo que se ve en el apartado «Con un código» del diálogo. */
+const nubeUI = { form: false, ver: false, ocupado: false, texto: '', foco: false };
 
 // ============================================================
 //  Utilidades
@@ -122,21 +131,26 @@ function renderStats() {
   $$('[data-count]').forEach(el => { const n = counts[el.dataset.count]; el.textContent = n ? fmtNum(n) : ''; });
 }
 
+/** Estado de las dos sincronizaciones (archivo y código), en una sola píldora. */
+function syncOverall() {
+  const f = sync.state, c = nube.state;
+  if (f === 'syncing' || c === 'syncing') return ['Sincronizando…', 'busy'];
+  // Sin red no es un fallo: se reintenta solo en cuanto vuelve.
+  const sinRed = c === 'error' && /Sin conexión/.test(nube.error || '');
+  if (f === 'error' || (c === 'error' && !sinRed)) return ['Error de sincronización', 'failed'];
+  if (f === 'needs-permission') return ['Pulsa para sincronizar', 'attention'];
+  if (sinRed) return ['Sin conexión', 'attention'];
+  const ultima = Math.max(c === 'ok' ? nube.lastSync || 0 : 0, f === 'ok' && sync.meta.lastSync ? Date.parse(sync.meta.lastSync) : 0);
+  if (ultima) return [`Sincronizado · ${fmtWhen(ultima)}`, 'connected'];
+  return ['Sin sincronizar', ''];
+}
+
 function renderSyncPill() {
+  if (!sync || !nube) return;
   const p = $('#sync-pill');
-  const st = sync.state;
-  const labels = {
-    unsupported: 'Sin sincronización',
-    none: 'Sin sincronizar',
-    'needs-permission': 'Pulsa para sincronizar',
-    syncing: 'Sincronizando…',
-    ok: `Sincronizado · ${fmtWhen(sync.meta.lastSync)}`,
-    error: 'Error de sincronización',
-  };
-  p.textContent = labels[st] || st;
-  p.className = 'status-pill sync-pill ' + ({
-    ok: 'connected', 'needs-permission': 'attention', error: 'failed', syncing: 'busy',
-  }[st] || '');
+  const [label, cls] = syncOverall();
+  p.textContent = label;
+  p.className = 'status-pill sync-pill ' + cls;
   if (!$('#sync-dialog').classList.contains('hidden')) renderSyncDialog();
   if (state.tab === 'home' && lib && (lib.books.size || lib.vocab.size)) { const y = $('#results').scrollTop; renderHome(); $('#results').scrollTop = y; }
 }
@@ -148,26 +162,93 @@ async function syncInteractive() {
   else if (r.error) showBanner({ title: 'No se pudo sincronizar', message: r.error, kind: 'error' });
 }
 
-function renderSyncDialog() {
-  const body = $('#sync-body');
-  const st = sync.state;
-  let html = '';
-  if (st === 'unsupported') {
-    html += `<p>Este navegador no permite que una web lea y guarde un archivo de tu ordenador, así que aquí no hay sincronización automática. Funciona en <strong>Chrome</strong> y <strong>Edge</strong> de escritorio.</p>
-      <p>Puedes <em>consultar</em> tus datos abriendo una copia de tu archivo de sincronización (por ejemplo, desde OneDrive en el móvil).</p>
-      <div class="dialog-actions-col">
-        <button class="btn btn-primary" data-act="open-readonly">Abrir archivo de sincronización (solo lectura)</button>
-        <button class="btn btn-ghost" data-act="backup">Descargar una copia de mis datos</button>
+/** Abre el diálogo de sincronización (con el campo del código a la vista, si se pide). */
+function openSyncDialog({ codigo = false } = {}) {
+  if (codigo && !nube.codigo) { nubeUI.form = true; nubeUI.foco = true; }
+  renderSyncDialog();
+  openDialog('sync-dialog');
+}
+
+/** «hoy a las 10:32», «el 3 de noviembre a las 10:32». */
+function cuandoLargo(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const hora = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? `hoy a las ${hora}` : `el ${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} a las ${hora}`;
+}
+
+const fmtBytes = n => n >= 1024 * 1024 ? `${(n / 1024 / 1024).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+function nubeSectionHtml() {
+  const st = nube.state;
+  let h = `<section class="sync-sec">
+    <div class="sync-sec-head"><span class="sync-sec-icon">${icon('phone')}</span><div><h3>Con un código</h3><p>Entre el móvil y el ordenador (o varios equipos). Sirve en cualquier navegador.</p></div></div>`;
+  if (!nube.codigo) {
+    if (nubeUI.form) {
+      h += `<form id="nube-form" class="code-form" autocomplete="off">
+        <label for="nube-codigo">El código de tu otro equipo (${LARGO_CODIGO} cifras)</label>
+        <div class="code-row">
+          <input id="nube-codigo" class="code-input" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="1234 5678 9012 3456" maxlength="24">
+          <button class="btn btn-primary" type="submit" id="nube-vincular" disabled>${nubeUI.ocupado ? 'Vinculando…' : 'Vincular'}</button>
+        </div>
+        <p class="hint" id="nube-cifras">Se juntan los datos de los dos equipos: no se borra nada de ninguno.</p>
+        <button type="button" class="link-btn" data-act="nube-cancelar">Cancelar</button>
+      </form>`;
+    } else {
+      h += `<p class="sync-lead">En un equipo pulsa <strong>Crear código</strong>; en el otro, <strong>Tengo un código</strong> y escríbelo una vez. Desde entonces se sincronizan solos.</p>
+      <div class="dialog-actions-row">
+        <button class="btn btn-primary" data-act="nube-crear"${nubeUI.ocupado ? ' disabled' : ''}>${icon('sparkle')}${nubeUI.ocupado ? 'Creando…' : 'Crear código'}</button>
+        <button class="btn" data-act="nube-tengo"${nubeUI.ocupado ? ' disabled' : ''}>${icon('link')}Tengo un código</button>
       </div>`;
+    }
+  } else {
+    const estado = {
+      syncing: 'Sincronizando…',
+      ok: `Vinculado · última vez ${esc(cuandoLargo(nube.lastSync))}`,
+      error: esc(nube.error || 'No se pudo sincronizar'),
+    }[st] || 'Vinculado';
+    const sinRed = st === 'error' && /Sin conexión/.test(nube.error || '');
+    h += `<div class="sync-state ${sinRed ? 'offline' : st}"><span class="sync-dot"></span><span>${estado}</span></div>`;
+    if (nube.tamano && nube.tamano.piezas) {
+      h += `<p class="hint">En la nube: ${fmtBytes(nube.tamano.bytes)}, cifrados y comprimidos, en ${fmtNum(nube.tamano.piezas)} piezas.</p>`;
+    }
+    if (nubeUI.ver) {
+      h += `<div class="code-box">
+          <output class="code-digits" aria-label="Tu código">${formatearCodigo(nube.codigo)}</output>
+          <button class="btn btn-sm" data-act="nube-copiar">${icon('copy')}Copiar</button>
+        </div>
+        <p class="hint">Escríbelo una vez en tu otro equipo: <em>Sincronización → Con un código → Tengo un código</em>. Guárdalo como una contraseña: con él se pueden leer tus datos.</p>`;
+    }
+    h += `<div class="dialog-actions-row">
+        <button class="btn btn-primary" data-act="nube-sync"${st === 'syncing' ? ' disabled' : ''}>${icon('refresh')}Sincronizar ahora</button>
+        <button class="btn" data-act="nube-ver">${icon('eye')}${nubeUI.ver ? 'Ocultar el código' : 'Ver el código'}</button>
+        <button class="btn btn-ghost" data-act="nube-desvincular">${icon('unlink')}Desvincular</button>
+      </div>`;
+  }
+  h += `<details class="sync-how"><summary>Cómo funciona</summary>
+      <p>${icon('lock')}Tus datos se cifran con el código antes de salir de este equipo y esperan en una base de datos de Firebase (la misma que usan UltraMind y RepArena), que solo ve algo ilegible y no deja listar nada. Sin el código nadie puede encontrarlos ni leerlos.</p>
+      <p>Para ocupar poco, van comprimidos y repartidos en piezas: al cambiar algo solo se sube la pieza de ese libro (o la de las marcas de las palabras), y el otro equipo solo baja lo que ha cambiado. Las piezas viejas se borran solas.</p>
+      <p>Cada equipo sube sus cambios a los pocos segundos y trae los del otro al abrir KindleVault, al volver a la página y cada pocos minutos. No se pierde nada: lo de los dos se junta. En el ordenador puedes usar a la vez el código y el archivo de sincronización.</p>
+    </details>
+  </section>`;
+  return h;
+}
+
+function fileSectionHtml() {
+  const st = sync.state;
+  const head = `<div class="sync-sec-head"><span class="sync-sec-icon">${icon('laptop')}</span><div><h3>Con un archivo</h3><p>Entre ordenadores, en una carpeta que se sincronice sola (OneDrive, Dropbox…).</p></div></div>`;
+  // En el móvil es cosa de ordenadores: plegado, salvo que ya se use.
+  let h = enMovil && !sync.handle
+    ? `<section class="sync-sec"><details class="sync-fold"><summary>${head}</summary>`
+    : `<section class="sync-sec">${head}`;
+  if (st === 'unsupported') {
+    h += `<p class="hint">Este navegador no deja que una web use un archivo de tu equipo (solo Chrome y Edge de ordenador). Aquí, usa el código.</p>
+      <div class="dialog-actions-row"><button class="btn btn-ghost" data-act="open-readonly">${icon('file')}Abrir una copia del archivo (solo lectura)</button></div>`;
   } else if (!sync.handle) {
-    html += `<p>Guarda tus datos en un archivo dentro de una carpeta que se sincronice sola, como <strong>OneDrive</strong> o <strong>Dropbox</strong>. Así tendrás lo mismo en todos tus ordenadores.</p>
-      <ul class="plain-list">
-        <li><strong>Primer ordenador:</strong> crea el archivo.</li>
-        <li><strong>Los demás:</strong> vincula ese mismo archivo.</li>
-      </ul>
-      <div class="dialog-actions-col">
-        <button class="btn btn-primary" data-act="create">Crear archivo de sincronización…</button>
-        <button class="btn btn-ghost" data-act="link">Vincular un archivo existente…</button>
+    h += `<p class="hint">En el primer ordenador, crea el archivo; en los demás, vincula ese mismo archivo.</p>
+      <div class="dialog-actions-row">
+        <button class="btn" data-act="create">${icon('plus')}Crear archivo…</button>
+        <button class="btn btn-ghost" data-act="link">${icon('link')}Vincular un archivo…</button>
       </div>`;
   } else {
     const stateText = {
@@ -176,42 +257,109 @@ function renderSyncDialog() {
       syncing: 'Sincronizando…',
       error: `<span class="text-danger">${esc(sync.error)}</span>`,
     }[st] || '';
-    html += `<div class="sync-file"><div class="sync-file-name">${esc(sync.meta.name || sync.handle.name)}</div><div class="hint">${stateText}</div></div>
-      <p class="hint">Se sincroniza solo al abrir la web, al volver a ella y después de cada importación. El navegador solo nos deja ver el nombre del archivo, no su carpeta.</p>
-      <div class="dialog-actions-col">
-        <button class="btn btn-primary" data-act="sync">Sincronizar ahora</button>
+    h += `<div class="sync-file"><div class="sync-file-name">${esc(sync.meta.name || sync.handle.name)}</div><div class="hint">${stateText}</div></div>
+      <p class="hint">Se sincroniza solo al abrir la web, al volver a ella y después de cada cambio. El navegador solo nos deja ver el nombre del archivo, no su carpeta.</p>
+      <div class="dialog-actions-row">
+        <button class="btn" data-act="sync">${icon('refresh')}Sincronizar ahora</button>
         <button class="btn btn-ghost" data-act="link">Vincular otro archivo…</button>
-        <button class="btn btn-ghost" data-act="unlink">Dejar de sincronizar</button>
+        <button class="btn btn-ghost" data-act="unlink">Dejar de usarlo</button>
       </div>`;
   }
-  if (st !== 'unsupported') {
-    html += `<details class="sync-more"><summary>Más opciones</summary>
+  return h + (enMovil && !sync.handle ? '</details>' : '') + '</section>';
+}
+
+function renderSyncDialog() {
+  const body = $('#sync-body');
+  const prev = $('#nube-codigo');
+  const tenia = prev && document.activeElement === prev;
+  if (prev) nubeUI.texto = prev.value;
+  body.innerHTML = nubeSectionHtml() + fileSectionHtml() + `<details class="sync-more"><summary>Más opciones</summary>
       <div class="dialog-actions-col">
-        <button class="btn btn-ghost" data-act="backup">Descargar una copia de mis datos</button>
+        <button class="btn btn-ghost" data-act="backup">${icon('import')}Descargar una copia de mis datos</button>
         <button class="btn btn-ghost danger" data-act="wipe">Borrar los datos de este navegador</button>
       </div></details>`;
-  }
-  body.innerHTML = html;
   body.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => syncAction(btn.dataset.act); });
+  const form = $('#nube-form');
+  if (form) {
+    const input = $('#nube-codigo');
+    input.value = nubeUI.texto;
+    const pintar = () => {
+      const n = limpiarCodigo(input.value).length;
+      $('#nube-vincular').disabled = nubeUI.ocupado || n !== LARGO_CODIGO;
+      $('#nube-cifras').textContent = n && n !== LARGO_CODIGO
+        ? `Llevas ${n} de ${LARGO_CODIGO} cifras.`
+        : 'Se juntan los datos de los dos equipos: no se borra nada de ninguno.';
+    };
+    input.oninput = () => {
+      input.value = formatearCodigo(input.value).slice(0, LARGO_CODIGO + 3);
+      nubeUI.texto = input.value;
+      pintar();
+    };
+    form.onsubmit = e => { e.preventDefault(); syncAction('nube-vincular'); };
+    pintar();
+    if (nubeUI.foco || tenia) {
+      nubeUI.foco = false;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
+}
+
+async function nubeAction(act) {
+  if (act === 'nube-tengo') { nubeUI.form = true; nubeUI.foco = true; nubeUI.texto = ''; }
+  else if (act === 'nube-cancelar') { nubeUI.form = false; nubeUI.texto = ''; }
+  else if (act === 'nube-ver') nubeUI.ver = !nubeUI.ver;
+  else if (act === 'nube-copiar') copyText(formatearCodigo(nube.codigo), '✓ Código copiado');
+  else if (act === 'nube-sync') {
+    const r = await nube.syncNow();
+    if (r.ok) toast(r.trajo ? '✓ Sincronizado: cambios de tu otro equipo cargados' : '✓ Sincronizado');
+  } else if (act === 'nube-crear') {
+    nubeUI.ocupado = true;
+    renderSyncDialog();
+    const r = await nube.crear();
+    nubeUI.ocupado = false;
+    if (r.ok) { nubeUI.ver = true; toast('Código creado: escríbelo en tu otro equipo'); }
+    else showBanner({ title: 'No se pudo crear el código', message: r.mensaje || 'Inténtalo de nuevo con conexión.', kind: 'error' });
+  } else if (act === 'nube-vincular') {
+    const texto = nubeUI.texto || ($('#nube-codigo') || {}).value || '';
+    if (!codigoValido(texto)) return;
+    nubeUI.ocupado = true;
+    renderSyncDialog();
+    const r = await nube.vincular(texto);
+    nubeUI.ocupado = false;
+    if (r.ok) {
+      nubeUI.form = false; nubeUI.texto = '';
+      toast(r.trajo ? '✓ Vinculado: tus datos ya están aquí' : '✓ Equipo vinculado');
+    } else {
+      showBanner({ title: 'No se pudo vincular', message: r.mensaje || 'Comprueba el código y la conexión.', kind: 'error' });
+    }
+  } else if (act === 'nube-desvincular') {
+    if (!confirm('Este equipo dejará de sincronizarse con el código. Tus datos se quedan aquí y lo de la nube sigue ahí: para volver, escribe el mismo código (lo ves en tu otro equipo, en «Ver el código»).')) return;
+    nubeUI.ver = false;
+    await nube.desvincular();
+    toast('Este equipo ya no se sincroniza con el código');
+  }
 }
 
 async function syncAction(act) {
   try {
-    if (act === 'create') { await sync.create(); toast('✓ Archivo creado y sincronizado'); }
+    if (act.startsWith('nube-')) await nubeAction(act);
+    else if (act === 'create') { await sync.create(); toast('✓ Archivo creado y sincronizado'); }
     else if (act === 'link') {
       const r = await sync.link();
       if (r.ok) toast(r.changedHere ? '✓ Archivo vinculado: datos cargados' : '✓ Archivo vinculado');
     }
     else if (act === 'sync') await syncInteractive();
-    else if (act === 'unlink') { await sync.unlink(); toast('Sincronización desactivada en este navegador'); }
+    else if (act === 'unlink') { await sync.unlink(); toast('Este navegador ya no usa el archivo de sincronización'); }
     else if (act === 'open-readonly') $('#sync-readonly-file').click();
     else if (act === 'backup') {
       const blob = new Blob([JSON.stringify(lib.toJSON())], { type: 'application/json' });
       download(blob, `kindlevault-copia-${new Date().toISOString().slice(0, 10)}.json`);
     } else if (act === 'wipe') {
-      if (!confirm('Se borrarán los libros, subrayados y vocabulario guardados en este navegador. Tu archivo de sincronización y tu Kindle no se tocan. ¿Continuar?')) return;
+      if (!confirm('Se borrarán los libros, subrayados y vocabulario guardados en este navegador. Tu Kindle, tu archivo de sincronización y lo que hay en la nube con tu código no se tocan (si este equipo sigue sincronizado, tus datos volverán). ¿Continuar?')) return;
       lib.clear();
       await lib.save();
+      await nube.olvidar();
       refreshAll();
       toast('Datos de este navegador borrados');
     }
@@ -220,6 +368,27 @@ async function syncAction(act) {
     showBanner({ title: 'No se pudo completar', message: e.message || String(e), kind: 'error' });
   }
   renderSyncDialog();
+}
+
+/** Tras un cambio aquí: al archivo y a la nube, cada uno con su espera. */
+function syncSoon() {
+  sync.schedule();
+  nube.schedule();
+}
+
+/**
+ * Lo que traiga una sincronización, a la vista sin perder el sitio: si se está
+ * leyendo una lista larga, se repinta al cambiar de vista (las cifras, ya).
+ */
+let refreshPending = false;
+function refreshSoft() {
+  renderStats();
+  const r = $('#results');
+  if (['highlights', 'vocab', 'book'].includes(state.tab) && r.scrollTop > 400) { refreshPending = true; return; }
+  const y = r.scrollTop;
+  renderChrome();
+  reload();
+  r.scrollTop = y;
 }
 
 // ============================================================
@@ -465,7 +634,7 @@ async function processImport(r, { rescan = false } = {}) {
     title: rescan ? 'Kindle escaneado de nuevo' : 'Importación completada', message: lines.join('\n'), failures: diag && diag.failures, kind,
     actions, chips,
   });
-  sync.schedule();
+  syncSoon();
   fetchCovers();
 }
 
@@ -476,7 +645,7 @@ async function importLoneWords() {
   pendingLoneWords = null;
   await lib.save();
   refreshAll();
-  sync.schedule();
+  syncSoon();
   showBanner({ title: 'Palabras añadidas', message: `${fmtNum(added)} palabras sin frase ni libro añadidas al vocabulario. Las verás sin libro en la lista.`, kind: 'success' });
 }
 
@@ -551,7 +720,7 @@ async function fetchCovers() {
     }
   } finally {
     coversRunning = false;
-    if (changed) { await lib.save(); sync.schedule(); }
+    if (changed) { await lib.save(); syncSoon(); }
   }
 }
 
@@ -609,6 +778,7 @@ function refreshAll() {
 }
 
 function reload() {
+  refreshPending = false;
   renderActiveFilters();
   if (!lib.books.size && !lib.vocab.size) { renderWelcome(); return; }
   const t = state.tab;
@@ -820,21 +990,24 @@ function renderWelcome() {
   $('#results').innerHTML = `<div class="welcome">
     <div class="welcome-art" aria-hidden="true">${spines.map(([c, h]) => `<span style="height:${h}px;background:${c}"></span>`).join('')}</div>
     <h2>Tus lecturas, en un solo sitio</h2>
-    <p>Trae los subrayados, notas y palabras que buscas en tu Kindle. Todo se guarda en este navegador y, si quieres, en un archivo de sincronización para tus otros ordenadores.</p>
+    <p>Trae los subrayados, notas y palabras que buscas en tu Kindle. Todo se guarda en este navegador y, si quieres, se sincroniza con tus otros equipos: el móvil y el ordenador.</p>
     <div class="welcome-actions">
-      <button class="btn btn-primary" id="w-import">${icon('import')}Importar mis datos</button>
-      ${syncSupported ? `<button class="btn btn-ghost" id="w-link">${icon('cloud')}Ya lo uso en otro ordenador</button>`
-        : `<button class="btn btn-ghost" id="w-open">${icon('cloud')}Abrir mi archivo de sincronización</button>`}
+      ${enMovil
+        ? `<button class="btn btn-primary" id="w-link">${icon('phone')}Ya lo uso en el ordenador</button>
+           <button class="btn btn-ghost" id="w-import">${icon('import')}Importar archivos</button>`
+        : `<button class="btn btn-primary" id="w-import">${icon('import')}Importar mis datos</button>
+           <button class="btn btn-ghost" id="w-link">${icon('phone')}Ya lo uso en otro equipo</button>`}
     </div>
     <div class="welcome-steps">
-      <div class="welcome-step">${icon('kindle')}<strong>Del Kindle</strong><span>Conéctalo por USB: subrayados, palabras buscadas y la lista de libros.</span></div>
+      ${enMovil
+        ? `<div class="welcome-step">${icon('laptop')}<strong>Desde el ordenador</strong><span>Crea allí un código (Sincronización → Con un código) y escríbelo aquí una vez: tu biblioteca llega sola.</span></div>`
+        : `<div class="welcome-step">${icon('kindle')}<strong>Del Kindle</strong><span>Conéctalo por USB: subrayados, palabras buscadas y la lista de libros.</span></div>`}
       <div class="welcome-step">${icon('cloud')}<strong>De la nube de Amazon</strong><span>Todo lo que subrayaste en cualquier aparato, con un marcador.</span></div>
       <div class="welcome-step">${icon('map')}<strong>Para estudiar</strong><span>Mapas en UltraMind y palabras en VocaMaster, con un clic.</span></div>
     </div>
   </div>`;
   $('#w-import').onclick = () => openDialog('import-dialog');
-  if ($('#w-link')) $('#w-link').onclick = () => syncAction('link');
-  if ($('#w-open')) $('#w-open').onclick = () => $('#sync-readonly-file').click();
+  $('#w-link').onclick = () => openSyncDialog({ codigo: true });
 }
 
 // ============================================================
@@ -936,11 +1109,13 @@ function renderHome() {
       <section class="panel">
         <div class="section-head"><h3>Tus datos</h3></div>
         <div class="kv-line">${icon('kindle')}<span>${lib.device ? `Kindle leído <strong>${esc(fmtWhen(lib.device.scannedAt))}</strong> · ${fmtNum(lib.device.keys.length)} libros` : 'Aún no has conectado el Kindle'}</span></div>
-        <div class="kv-line">${icon('cloud')}<span>${esc(syncSummary())}</span></div>
+        <div class="kv-line">${icon('phone')}<span>${esc(nubeSummary())}</span></div>
+        <div class="kv-line">${icon('laptop')}<span>${esc(syncSummary())}</span></div>
         <div class="kv-line">${icon('history')}<span>${hist.years.length ? `Registros desde <strong>${esc(hist.years[hist.years.length - 1].year)}</strong> en ${fmtNum(hist.books.length)} libros` : 'Sin fechas de lectura todavía'}</span></div>
         <div class="panel-actions" style="margin-top:12px">
           ${canRescan ? `<button class="btn btn-sm" data-go="rescan">${icon('refresh')}Volver a escanear el Kindle</button>` : ''}
           <button class="btn btn-sm btn-ghost" data-go="import">${icon('import')}Importar</button>
+          <button class="btn btn-sm btn-ghost" data-go="sync">${icon('refresh')}Sincronización</button>
         </div>
       </section>
     </div>
@@ -954,17 +1129,25 @@ function renderHome() {
 
 function syncSummary() {
   const st = sync ? sync.state : 'none';
-  if (st === 'ok') return `Sincronizado ${fmtWhen(sync.meta.lastSync)}`;
-  if (st === 'needs-permission') return 'Sincronización: pulsa para dar permiso';
-  if (st === 'unsupported') return 'Este navegador no sincroniza (usa Chrome o Edge)';
-  if (st === 'error') return 'Error de sincronización';
-  if (st === 'syncing') return 'Sincronizando…';
-  return 'Solo en este navegador (sin archivo de sincronización)';
+  if (st === 'ok') return `Archivo de sincronización: al día (${fmtWhen(sync.meta.lastSync)})`;
+  if (st === 'needs-permission') return 'Archivo de sincronización: pulsa para dar permiso';
+  if (st === 'unsupported') return 'Archivo de sincronización: no en este navegador';
+  if (st === 'error') return 'Archivo de sincronización: error';
+  if (st === 'syncing') return 'Archivo de sincronización: sincronizando…';
+  return 'Sin archivo de sincronización';
+}
+
+function nubeSummary() {
+  if (!nube || !nube.codigo) return 'Sin código: llévate tu biblioteca al móvil con «Sincronización»';
+  if (nube.state === 'syncing') return 'Con un código: sincronizando…';
+  if (nube.state === 'error') return `Con un código: ${nube.error || 'error'}`;
+  return `Con un código: al día${nube.lastSync ? ` (${fmtWhen(nube.lastSync)})` : ''}`;
 }
 
 /** Atajos del Inicio y del Historial. */
 function go(where) {
   if (where === 'import') openDialog('import-dialog');
+  else if (where === 'sync') openSyncDialog();
   else if (where === 'rescan') rescanKindle();
   else if (where === 'new-words' || where === 'send-new') {
     state.selectedBooks.clear(); state.selectedLangs.clear(); state.repeatedOnly = false; state.wordKey = null;
@@ -1148,7 +1331,9 @@ function renderSelectionBar() {
        <button class="btn btn-sm" data-sel-act="ignored">${icon('ban')}Ignorar</button>
        <button class="link-btn" data-sel-act="all">Elegir todas</button>
        <button class="link-btn" data-sel-act="none">Quitar selección</button>`
-    : `<span>Marca palabras con su casilla para enviarlas o marcarlas (Mayús+clic elige un tramo).</span>
+    : `<span>${tactil()
+        ? 'Toca la casilla de cada palabra para enviarla o marcarla (mantén pulsada una casilla para elegir también las de en medio).'
+        : 'Marca palabras con su casilla para enviarlas o marcarlas (Mayús+clic elige un tramo).'}</span>
        <button class="link-btn" data-sel-act="all">Elegir todas las de la lista</button>`;
 }
 
@@ -1198,7 +1383,7 @@ async function setWordStatus(keys, status) {
   });
   if (state.tab === 'vocab') renderToolbar();
   await lib.save();
-  sync.schedule();
+  syncSoon();
 }
 
 // ----- Copiar, escuchar y traducir -----
@@ -1927,7 +2112,11 @@ function wire() {
     if (popoverFor && !e.target.closest('#popover') && !e.target.closest('[data-chip]')) closePopover();
   });
   window.addEventListener('resize', closePopover);
-  $('#results').addEventListener('scroll', closePopover, { passive: true });
+  $('#results').addEventListener('scroll', () => {
+    closePopover();
+    // Lo que llegó mientras se leía más abajo, al volver arriba.
+    if (refreshPending && $('#results').scrollTop < 120) refreshSoft();
+  }, { passive: true });
 
   // Buscador (Ctrl+K)
   $('#palette-input').addEventListener('input', e => renderPalette(e.target.value));
@@ -2005,8 +2194,9 @@ function wire() {
   });
 
   $('#sync-pill').onclick = () => {
+    $('#rail').classList.remove('open');
     if (sync.state === 'needs-permission') syncInteractive();
-    else { renderSyncDialog(); openDialog('sync-dialog'); }
+    else openSyncDialog();
   };
   $('#sync-readonly-file').addEventListener('change', async e => {
     const f = e.target.files[0];
@@ -2034,9 +2224,31 @@ function wire() {
     const btn = e.target.closest('[data-sel-act]');
     if (btn) selectionAction(btn.dataset.selAct);
   });
+  // En táctil, mantener pulsada una casilla elige el tramo desde la última (como Mayús+clic).
+  let pulsando = null, pulsadaLarga = null;
+  const soltar = () => { if (pulsando) { clearTimeout(pulsando); pulsando = null; } };
+  $('#results').addEventListener('pointerdown', e => {
+    pulsadaLarga = null; // (si tras la pulsación larga no llegó el clic, no se come el siguiente toque)
+    const cb = e.target.closest('.v-cb');
+    if (!cb || e.pointerType === 'mouse') return;
+    soltar();
+    pulsando = setTimeout(() => {
+      pulsando = null;
+      if (state.lastChecked === null || state.lastChecked === +cb.dataset.i) return;
+      pulsadaLarga = cb;
+      cb.checked = true;
+      toggleWordCheckbox(cb, true);
+      if (navigator.vibrate) navigator.vibrate(12);
+    }, 450);
+  });
+  ['pointerup', 'pointercancel', 'pointermove'].forEach(ev => $('#results').addEventListener(ev, e => {
+    if (ev !== 'pointermove' || (e.movementX * e.movementX + e.movementY * e.movementY) > 16) soltar();
+  }));
+  $('#results').addEventListener('contextmenu', e => { if (e.target.closest('.v-cb')) e.preventDefault(); });
   $('#results').addEventListener('click', e => {
     const t = e.target;
     const cb = t.closest('.v-cb');
+    if (cb && pulsadaLarga === cb) { pulsadaLarga = null; e.preventDefault(); return; } // ya elegido el tramo
     if (cb) { toggleWordCheckbox(cb, e.shiftKey); return; }
     const el = t.closest('[data-speak], [data-translate], [data-times], [data-word-act], [data-copy], [data-open-book], [data-go], [data-book-act], [data-book-tab], [data-book-key], .word-chip[data-wkey]');
     if (!el) return;
@@ -2124,13 +2336,25 @@ function wire() {
 
 async function main() {
   lib = await Library.load();
+  // El archivo y el código no cruzan nunca a la vez; lo que trae uno se pasa al otro.
+  const cerrojo = crearCerrojo();
   sync = new SyncManager(lib, {
     onStatus: renderSyncPill,
-    onMerged: () => { refreshAll(); fetchCovers(); },
+    onMerged: () => { refreshSoft(); fetchCovers(); nube.schedule(); },
+    cerrojo,
+  });
+  nube = new NubeSync(lib, {
+    onStatus: renderSyncPill,
+    onMerged: () => {
+      refreshSoft(); fetchCovers(); sync.schedule();
+      if (document.visibilityState === 'visible' && $('#sync-dialog').classList.contains('hidden')) toast('↓ Cambios de tu otro equipo, ya aquí');
+    },
+    cerrojo,
   });
   wire();
   refreshAll();
   renderRescanButtons();
+  nube.init().catch(e => console.error(e));
   await sync.init();
   if (sync.state === 'needs-permission') {
     showBanner({

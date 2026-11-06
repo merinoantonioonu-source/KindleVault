@@ -45,7 +45,7 @@ export const bookKey = (title, author) => `${fold(title)}\u0001${fold(author)}`;
  * libro escrito de formas distintas en My Clippings, vocab.db, los nombres de
  * archivo y Amazon.
  */
-function titleParts(title) {
+export function titleParts(title) {
   const f = fold(title).replace(/\([^)]*\)|\[[^\]]*\]/g, ' ');
   const bare = s => s.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   return { full: bare(f), main: bare(f.split(/\s*[:;]\s*|\s+[-–—]\s+|\.\s+/)[0]) };
@@ -95,6 +95,22 @@ function span(h) {
 const overlaps = (x, y) => x && y && x.unit === y.unit && x.a <= y.b && y.a <= x.b;
 const compact = s => fold(s).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
+/**
+ * Completa la ficha de un libro con lo que trae otra (solo rellena huecos y
+ * mejora la portada). Devuelve true si cambió algo. La usa también la
+ * sincronización con un código, para juntar las fichas en la nube.
+ */
+export function mergeBookFields(target, src) {
+  let changed = false;
+  if (!target.author && src.author) { target.author = src.author; changed = true; }
+  if (!target.language && src.language) { target.language = src.language; changed = true; }
+  if (!target.asin && src.asin) { target.asin = src.asin; changed = true; }
+  if (!target.in_cloud && src.in_cloud) { target.in_cloud = true; changed = true; }
+  const rank = u => (!u ? 0 : u === '__not_found__' ? 1 : 2);
+  if (rank(src.cover_url) > rank(target.cover_url)) { target.cover_url = src.cover_url; changed = true; }
+  return changed;
+}
+
 export class Library {
   constructor() {
     this.books = new Map();      // key → {key,title,author,language,cover_url}
@@ -138,16 +154,7 @@ export class Library {
   }
 
   // ----- libros -----
-  _mergeBookFields(target, src) {
-    let changed = false;
-    if (!target.author && src.author) { target.author = src.author; changed = true; }
-    if (!target.language && src.language) { target.language = src.language; changed = true; }
-    if (!target.asin && src.asin) { target.asin = src.asin; changed = true; }
-    if (!target.in_cloud && src.in_cloud) { target.in_cloud = true; changed = true; }
-    const rank = u => (!u ? 0 : u === '__not_found__' ? 1 : 2);
-    if (rank(src.cover_url) > rank(target.cover_url)) { target.cover_url = src.cover_url; changed = true; }
-    return changed;
-  }
+  _mergeBookFields(target, src) { return mergeBookFields(target, src); }
 
   /** Por ASIN; si además se da el título, tiene que cuadrar (un ASIN mal asignado antes no manda). */
   findBookByAsin(asin, title = null) {
